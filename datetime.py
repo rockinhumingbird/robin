@@ -5,8 +5,7 @@ Created on Sat Jun  2 13:16:05 2018
 @author: soviv
 """
 #project1
-import datetime 
-
+from datetime import datetime 
 def days_in_month(year, month):
     """
     Inputs:
@@ -17,16 +16,14 @@ def days_in_month(year, month):
     Returns:
       The number of days in the input month
     """
-    date1= datetime.datetime(year,month,1)
-    
+    date1= datetime(year,month,1)
     if month!=12:
-        date2= datetime.datetime(year,month+1,1)
+        date2=datetime(year,month+1,1)
     else:
-        date2= datetime.datetime(year+1,1,1)
+        date2=datetime(year+1,1,1)
     
     timedelta= date2 - date1
     return timedelta.days
-
 
 #problem2Checking if a date is valid
 def is_valid_date(year,month,day):
@@ -35,26 +32,21 @@ def is_valid_date(year,month,day):
       year  - an integer representing the year
       month - an integer representing the month
       day   - an integer representing the day
-      
+          
     Returns:
       True if year-month-day is a valid date and
       False otherwise
     """
-    isValidDate= True
     try:
-        datetime.datetime(int(year), 
-                          int(month), int(day))
+        datetime(int(year), int(month), int(day))
+        return True
     except ValueError :
-            print ("False")
-            isValidDate = False
-        
-    if(isValidDate):
-            return ("True")
-    else :
-            return ("False")
+        return False
 
 #problem3Checking if a date is valid
-"""
+
+def days_between(year1, month1, day1, year2, month2, day2):
+    """
     Inputs:
       year1  - an integer representing the year of the first date
       month1 - an integer representing the month of the first date
@@ -68,18 +60,16 @@ def is_valid_date(year,month,day):
       Returns 0 if either date is invalid or the second date is 
       before the first date.
     """
-def days_between(year1, month1, day1, year2, month2, day2):
-
     try:
-        date3= datetime.datetime(year1,month1,day1)
-        date4= datetime.datetime(year2,month2,day2)
+        date3= datetime(year1,month1,day1)
+        date4= datetime(year2,month2,day2)
         if date3 < date4:
-            return date4-date3    
+            return (date4-date3).days    
         else:
             return 0    
     except ValueError:
         return 0
-    
+
 #project4 Calculating a person's age in days
 def age_in_days(year, month, day):
     """
@@ -94,13 +84,11 @@ def age_in_days(year, month, day):
       date is in the future.
     """
     try:
-        birthday=datetime.datetime(year,month,day)
-        date5=datetime.datetime.today()
+        birthday=datetime(year,month,day)
+        date5=datetime.today()
         if birthday <date5:
-            return date5-birthday
+            return (date5-birthday).days 
         else:
             return 0
     except ValueError:
         return 0
-
-
