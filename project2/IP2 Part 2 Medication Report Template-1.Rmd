@@ -1,0 +1,411 @@
+---
+title: "Individual Project 2"
+author: "chang"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r seed}
+set.seed(1031)
+```
+
+```{r libraries}
+library(data.table)
+library(DT)
+library(dplyr)
+library(tidyr)
+library(lubridate)
+```
+
+```{r functions}
+round.numerics = function(x, digits){
+  if(is.numeric(x)){
+    x = round(x = x, digits = digits)
+  }
+  return(x)
+}
+
+stats.sum = function(x){
+  return(data.table(Average = mean(x), Median = median(x), SD = sd(x))[, lapply(.SD, round.numerics, digits = 3)])
+}
+
+calculate_total_period <- function(df) {
+  # Initializing variables
+  total_periods <- c()
+  
+  # Looping through each unique id
+  for (id in unique(df$id)) {
+    # Finding the index of the first occurrence of "ace" being 1 for the current id
+    first_ace_index <- which(df$id == id & df$ace == 1)[1]
+    
+    if (!is.na(first_ace_index)) {
+      # Finding the index of the next occurrence of "ace" being 0 after the first occurrence of 1
+      next_non_ace_index <- which(df$id == id & df$ace == 0 & seq_along(df$ace) > first_ace_index)[1]
+      
+      if (is.na(next_non_ace_index)) {
+        # Subset the dataframe from the first occurrence of "ace" being 1 to the last row of the records for the current id
+        subset_df <- df[first_ace_index:nrow(df[df$id == id, ]), ]
+      } else {
+        # Subset the dataframe from the first occurrence of "ace" being 1 to the next occurrence of "ace" being 0
+        subset_df <- df[first_ace_index:(next_non_ace_index - 1), ]
+      }
+      
+      # Calculate the total of "period.total" in the subset
+      total_period <- sum(subset_df$period.total)
+      
+      # Append the total period to the result vector
+      total_periods <- c(total_periods, total_period)
+    }
+  }
+  
+  # Create the resulting dataframe
+  result_df <- data.frame(id = unique(df$id), total_period = total_periods, stringsAsFactors = FALSE)
+  
+  return(result_df)
+}
+```
+
+```{r load_data}
+measurements = fread(input = 'baseline measurements.csv')
+adherence = fread(input = 'adherence.csv')
+```
+
+```{r constants}
+total.pat = measurements[, .SD[1], by = "id"][, .N]
+one.year = 365
+list.of.meds = c("ace", "bb", "statin")
+```
+
+```{r clean_data}
+pats.ace.within14 = adherence[t1 < 14 & ace == 1, .(unique(id))][, ace.within14 := 1]
+pats.bb.within14 = adherence[t1 < 14 & bb == 1, .(unique(id))][, bb.within14 := 1]
+pats.statin.within14 = adherence[t1 < 14 & statin == 1, .(unique(id))][, statin.within14 := 1]
+colnames(pats.ace.within14)[1] = "id" 
+colnames(pats.bb.within14)[1] = "id" 
+colnames(pats.statin.within14)[1] = "id" 
+```
+
+# Instructions {.tabset}
+
+## Overview
+
+Your new client is a health insurance company.  After a lengthy review of their business, the insurance company has decided to prioritize improvements in medication adherence.  For our initial work, we will focus on patients with heart disease and how well they take their medications.
+
+Your team has received some modest training from a physician.  Here are the basic facts you need to know.  Heart disease is one of the most pervasive health problems, especially for older patients.  The initial diagnosis typically occurs too late.  Most patients only become aware that they have heart disease after experiencing an acute episode.  This can be limited to moderate symptoms, which might be treated by either medications or a light procedure.  In more severe cases, the patient might suffer a major event such as a myocardial infarction (heart attack) or need a significant surgical operation.  Whether minor or major, these events often include a hospitalization.  After the initial diagnosis, patients are typically prescribed a range of medications.  Three primary therapies include ACE inhibitors, beta blockers, and statins.
+
+The insurance company has helpfully compiled data on a large number of patients.  They have included a number of important clinical factors about their baseline conditions.  Then, starting from the time of their initial diagnoses of heart disease, the patients were tracked based upon which medications were filled at the pharmacy.  The medication records are presented in the form of panel data.  A single patient's records are linked by a unique identifier.  The time measurements represent the number of days since baseline.  Prescriptions are typically filled for 30 or 90 days of medications.  For this study, you may assume that the patients qualified for our study and reasonably could have been expected to be prescribed all of the medicines we are tracking.
+
+In this project, you will develop an approach to working with the information. The client company has provided a list of questions they would like to address. In addition to building the report, our team would also like you to perform some independent investigation and present recommendations for the client. We also want you to identify opportunities for further work with this client.
+
+## Part 2:  Adherence Report {.tabset}
+
+
+### Q1 {.tabset}
+
+A patient's **length of follow-up** is the amount of time after diagnosis for which they were under observation (with records in the data). What was the median length of follow-up time? What percentage of the patients had at least 1 year (365 days) of records?
+
+```{r q1}
+adherence = adherence[, period.total := (t2 - t1)][, total.followup := sum(period.total), by = "id"]
+followup = adherence[, c(1, 8)][, .SD[1], by = "id"]
+followup.over.one.year = adherence[total.followup > one.year, .SD[1], by = "id"]
+meadian = median(followup$total.followup)
+percentage = round.numerics(x = (followup.over.one.year[, .N] / total.pat * 100), digits = 1)
+```
+
+The median length of follow-up time is `r meadian`, and the percentage of the patients who had at least 1 year (one.year days) of records is `r percentage`.
+
+### Q2
+
+For patients with at least 1 year (365 days) of follow-up, their **one-year adherence** to a medication is the proportion of days in the first year after diagnosis during which the medication was possessed. For each medication, what was the average one-year adherence of the patients? Use only the patients with at least 1 year of follow-up records.
+
+```{r q2}
+##Find patient with at least one.year days of followup and remove unnecessary columns
+adh.1yr = adherence[total.followup > one.year]
+
+##Measure the one-year adherence rate to each of the three medications starting the first day
+adh.1yr[, oneyear.ace := sum(pmin(one.year, t2) - t1) * ace, by = c("id", "t1")]
+adh.1yr[, oneyear.ace := (sum(oneyear.ace[oneyear.ace > 0] / one.year)), by = "id"]
+adh.1yr[, oneyear.bb := sum(pmin(one.year, t2) - t1) * bb, by = c("id", "t1")]
+adh.1yr[, oneyear.bb := (sum(oneyear.bb[oneyear.bb > 0] / one.year)), by = "id"]
+adh.1yr[, oneyear.statin := sum(pmin(one.year, t2) - t1) * statin, by = c("id", "t1")]
+adh.1yr[, oneyear.statin := (sum(oneyear.statin[oneyear.statin > 0] / one.year)), by = "id"]
+
+##Extract results
+adh.1yr = adh.1yr[, .SD[1], by = "id"]
+adh.1yr = adh.1yr[, -c(2:7)]
+adh.1yr.ace = round.numerics(x = mean(adh.1yr$oneyear.ace), digits = 3)
+adh.1yr.bb = round.numerics(x = mean(adh.1yr$oneyear.bb), digits = 3)
+adh.1yr.statin = round.numerics(x = mean(adh.1yr$oneyear.statin), digits = 3)
+```
+
+The average one-year adherence of the patients is `r adh.1yr.ace` for ACE Inhibitors, `r adh.1yr.bb` for Beta Blockers, and `r adh.1yr.statin` for Statins.
+
+### Q3
+
+For ace inhibitors, beta blockers, and statins, we are interested in the number of these medications that patients take at the same time. During the first year (365 days), how frequently are the patients taking 0, 1, 2, or all 3 medications?  
+
+Only perform this calculation among patients with at least one year of follow-up. Create a table that shows the percentage for each number of medications taken.
+
+```{r q3}
+med = adherence[, period.med := sum(ace + bb + statin), by = c("id", "t1")]
+med = med[t1 < one.year]
+res.med = med[, .(period.med = max(period.med)), by = id][, .(Proportion = round.numerics(x = (.N / total.pat * 100), digits = 1)), by = period.med]
+colnames(res.med)[1] = "Number of Medications within the First Year"
+res.med
+```
+
+### Q4 {.tabset}
+
+What is the impact of diabetes, age, gender, region, and baseline condition on the one-year adherence to each medication? Use only the patients with at least 1 year (365 days) of follow-up records. Fit separate linear regression models for each medicine. Then briefly comment on the results.
+
+```{r one.year.adherence.model.dat}
+lm.adh.df = left_join(adh.1yr, measurements, by = "id")
+```
+
+#### ACE Inhibitors
+
+```{r q4_ace}
+lm.adh.ace.1yr = lm(oneyear.ace ~ age + gender + region + diabetes + baseline.condition, lm.adh.df)
+summary(lm.adh.ace.1yr)
+```
+
+According to the results of the regression model, for patients, the conditions of having diabetes, being from Northeast, South, and West are positively associated with the adherence rate to ACE Inhibitors, with age, being male or other gender, and baseline conditions of moderate symptoms or light procedure being negatively associated with the adherence rate to ACE Inhibitors.
+
+#### Beta Blockers
+
+```{r q4_bb}
+lm.adh.bb.1yr = lm(oneyear.bb ~ age + gender + region + diabetes + baseline.condition, lm.adh.df)
+summary(lm.adh.bb.1yr)
+```
+
+According to the results of the regression model, for patients, the conditions of having diabetes, being from Northeast, South, and West are positively associated with the adherence rate to Beta Blockers, with age, being male or other gender, and baseline conditions of moderate symptoms or light procedure being negatively associated with the adherence rate to Beta Blockers.
+
+#### Statins
+
+```{r q4_statin}
+lm.adh.statin.1yr = lm(oneyear.statin ~ age + gender + region + diabetes + baseline.condition, lm.adh.df)
+summary(lm.adh.statin.1yr)
+```
+
+According to the results of the regression model, for patients, the conditions of having diabetes, being from Northeast, South, and West, and being other gender are positively associated with the adherence rate to Statins, with age, being male, and baseline conditions of moderate symptoms or light procedure being negatively associated with the adherence rate to Statins.
+
+### Q5
+
+For each medicine, what percentage of the patients filled a prescription in the first two weeks (before day t1 = 14) after their initial diagnoses? Use data from all of the patients for this analysis, classifying each one as filling or not filling the prescription during this period.
+
+```{r q5}
+percent.ace = round.numerics(x = (adherence[t1 < 14 & ace == 1, .SD[1], by = "id"][, .N] / total.pat * 100), digits = 1)
+percent.bb = round.numerics(x = (adherence[t1 < 14 & bb == 1, .SD[1], by = "id"][, .N] / total.pat * 100), digits = 1)
+percent.statin = round.numerics(x = (adherence[t1 < 14 & statin == 1, .SD[1], by = "id"][, .N] / total.pat * 100), digits = 1)
+```
+
+The percentages of the patients filled a prescription in the first two weeks (before day t1 = 14) after their initial diagnoses are `r percent.ace` for ACE Inhibitors, `r percent.bb` for Beta Blockers, and `r percent.statin` for Statins.
+
+### Q6 {.tabset}
+
+Now let's compare those who filled a prescription for a statin in the first two weeks (before day t1 = 14) after diagnosis to those who did not. Do these two groups have different baseline covariates? Compare the groups based on their ages. Then compare the distribution of baseline conditions in the two groups. For continuous variables, compare their means using a t-test. For the categorical variables, compare their distributions using a chi-squared test of independence.  
+
+#### Age
+
+```{r q6_age}
+statin.compare = full_join(measurements, pats.statin.within14, by = "id")
+statin.compare[is.na(statin.compare), ] = 0
+
+age = statin.compare[, c(2, 7)]
+t.test(age ~ statin.within14, data = age)
+```
+
+Based on the result of t-test, relative to patients who did not start a statin within 2 weeks (before day t1 = 14), patients who did fill a prescription for Statins within 2 weeks were younger on average.
+
+#### Baseline Conditions
+
+```{r q6_baseline.condition}
+chisq.test(statin.compare$baseline.condition, statin.compare$statin.within14)
+```
+
+Based on the result of t-test, relative to patients who did not start a statin within 2 weeks (before day t1 = 14), patients who did fill a prescription for Statins have different baseline conditions.
+
+### Q7 {.tabset}
+
+How do the variables of age, gender, region, diabetes, and baseline condition impact the likelihood of initiating a medication within 14 days (before day t1 = 14)?  For each medicine, fit a logistic regression model and comment on the odds ratios. Use data from all of the patients for this analysis.
+
+```{r q7}
+glm.all.df = full_join(measurements, pats.ace.within14, by = "id")
+glm.all.df = full_join(glm.all.df, pats.bb.within14, by = "id")
+glm.all.df = full_join(glm.all.df, pats.statin.within14, by = "id")
+glm.all.df[is.na(glm.all.df), ] = 0
+```
+
+#### ACE Inhibitors
+
+```{r q7_ace}
+glm.ace = glm(ace.within14 ~ age + gender + region + diabetes + baseline.condition, glm.all.df, family = binomial)
+exp(coef(glm.ace))
+```
+
+The chart above shows odds ratio of the likelihood of a condition contributes to the decision whether or not a patient would subscribe to ACE Inhibitors within the first 14 days, with the odds ratio being greater one means that this condition is more likely to occur within this group and vice versa. Taking baseline conditions as an example, after adjusting for all the confounders (age, gender, region, and diabetes), the odd ratio is around 0.615. This means that the odds of subscribing to ACE Inhibitors within the first 14 days for those who have a baseline condition of moderate symptoms or light procudure is 38.5% (1 - 0.615) less likely as compared to those who do not. Similarly, looking at diabetes, after adjusting for all the confounders (age, gender, region, and baseline conditions), the odd ratio is 1.276. This means that the likelihood of subscribing to ACE Inhibitors within the first 14 days increases by about 27.6% higher for those who have diabetes compared to those who do not.
+
+#### Beta Blockers
+
+```{r q7_bb}
+glm.bb = glm(bb.within14 ~ age + gender + region + diabetes + baseline.condition, glm.all.df, family = binomial)
+exp(coef(glm.bb))
+```
+
+The chart above shows odds ratio of the likelihood of a condition contributes to the decision whether or not a patient would subscribe to ACE Inhibitors within the first 14 days, with the odds ratio being greater one means that this condition is more likely to occur within this group and vice versa. Taking baseline conditions as an example, after adjusting for all the confounders (age, gender, region, and diabetes), the odd ratio is around 0.641. This means that the odds of subscribing to Beta Blockers within the first 14 days for those who have a baseline condition of moderate symptoms or light procudure is 35.9% (1 - 0.641) less likely as compared to those who do not. Similarly, looking at diabetes, after adjusting for all the confounders (age, gender, region, and baseline conditions), the odd ratio is 1.158. This means that the likelihood of subscribing to Beta Blockers within the first 14 days increases by about 15.8% higher for those who have diabetes compared to those who do not.
+
+#### Statins
+
+```{r q7_statins}
+glm.statin = glm(statin.within14 ~ age + gender + region + diabetes + baseline.condition, glm.all.df, family = binomial)
+exp(coef(glm.statin))
+```
+
+The chart above shows odds ratio of the likelihood of a condition contributes to the decision whether or not a patient would subscribe to ACE Inhibitors within the first 14 days, with the odds ratio being greater one means that this condition is more likely to occur within this group and vice versa. Taking baseline conditions as an example, after adjusting for all the confounders (age, gender, region, and diabetes), the odd ratio is around 0.559. This means that the odds of subscribing to Statins within the first 14 days for those who have a baseline condition of moderate symptoms or light procudure is 44.1% (1 - 0.559) less likely as compared to those who do not. Similarly, looking at diabetes, after adjusting for all the confounders (age, gender, region, and baseline conditions), the odd ratio is 1.252. This means that the likelihood of subscribing to Statins within the first 14 days increases by about 25.2% higher for those who have diabetes compared to those who do not.
+
+### Q8 {.tabset}
+
+For patients who did fill their prescriptions within 2 weeks (before day t1 = 14), how long does it typically take to fill that first prescription after the initial diagnosis? For each medicine, provide the mean, median, and standard deviation in units of days.
+
+```{r q8}
+pats.ace.within14 = full_join(adherence, pats.ace.within14, by = "id")
+pats.bb.within14 = full_join(adherence, pats.bb.within14, by = "id")
+pats.statin.within14 = full_join(adherence, pats.statin.within14, by = "id")
+```
+
+#### ACE Inhibitors
+
+```{r q8_ace}
+res.ace = pats.ace.within14[ace.within14 == 1 & ace == 1, .SD[1], by = "id"]
+ace.first.pre.mean = round.numerics(x = mean(res.ace$t1), digits = 2)
+ace.first.pre.median = round.numerics(x = median(res.ace$t1), digits = 2)
+ace.first.pre.sd = round.numerics(x = sd(res.ace$t1), digits = 2)
+```
+
+The time it takes for patients to fill the first prescription after the initial diagnosis has an average of `r ace.first.pre.mean` days, with the median being `r ace.first.pre.median` days and the standard deviation being `r ace.first.pre.sd` days.
+
+#### Beta Blockers
+
+```{r q8_bb}
+res.bb = pats.bb.within14[bb.within14 == 1 & bb == 1, .SD[1], by = "id"]
+bb.first.pre.mean = round.numerics(x = mean(res.bb$t1), digits = 2)
+bb.first.pre.median = round.numerics(x = median(res.bb$t1), digits = 2)
+bb.first.pre.sd = round.numerics(x = sd(res.bb$t1), digits = 2)
+```
+
+The time it takes for patients to fill the first prescription after the initial diagnosis has an average of `r bb.first.pre.mean` days, with the median being `r bb.first.pre.median` days and the standard deviation being `r bb.first.pre.sd` days.
+
+#### Statins
+
+```{r q8_statin}
+res.statin = pats.statin.within14[statin.within14 == 1 & statin == 1, .SD[1], by = "id"]
+statin.first.pre.mean = round.numerics(x = mean(res.statin$t1), digits = 2)
+statin.first.pre.median = round.numerics(x = median(res.statin$t1), digits = 2)
+statin.first.pre.sd = round.numerics(x = sd(res.statin$t1), digits = 2)
+```
+
+The time it takes for patients to fill the first prescription after the initial diagnosis has an average of `r statin.first.pre.mean` days, with the median being `r statin.first.pre.median` days and the standard deviation being `r statin.first.pre.sd` days.
+
+### Q9 {.tabset}
+
+How does filling a prescription in the first two weeks impact adherence?  If we want to see that a medicine is working, we need to start the observation after the patient has had a chance to fill the prescription.  To answer this question, we will follow a number of steps:
+
+1.  Identify which patients filled a prescription in the first two weeks. You can call this variable **initiated** with binary values (1 for yes, 0 for no).
+
+2.  Then, for each patient with at least 379 days of followup, measure the one-year adherence rate (see Question 2) **starting at two weeks after the initial diagnosis**. This interval will begin at day 14 and last for one.year days.
+
+3.  Fit a linear regression model of this one-year adherence including the baseline covariates (age, gender, region, diabetes, baseline condition) and an indicator of whether this patient filled a prescription for the medicine in the first two weeks.
+
+Perform this analysis for each medicine and comment on the results.
+
+```{r q9}
+##Find patient with at least 379 days of followup and join with the table in the previous step
+lm.ace.df = pats.ace.within14[total.followup > 379]
+lm.ace.df[is.na(lm.ace.df), ] = 0
+
+lm.bb.df = pats.bb.within14[total.followup > 379]
+lm.bb.df[is.na(lm.bb.df), ] = 0
+
+lm.statin.df = pats.statin.within14[total.followup > 379]
+lm.statin.df[is.na(lm.statin.df), ] = 0
+
+##Measure the one-year adherence rate starting at two weeks after the initial diagnosis by casting the interval that begins at day 14 and last for one.year days
+lm.ace.df[, adh.ace.1yr := sum(pmin(379, t2) - pmax(t1, 14)) * ace, by = c("id", "t1")]
+lm.ace.df[, adh.ace.1yr := (sum(adh.ace.1yr[adh.ace.1yr > 0] / one.year)), by = "id"]
+lm.ace.df = lm.ace.df[, .SD[1], by = "id"]
+
+lm.bb.df[, adh.bb.1yr := sum(pmin(379, t2) - pmax(t1, 14)) * bb, by = c("id", "t1")]
+lm.bb.df[, adh.bb.1yr := (sum(adh.bb.1yr[adh.bb.1yr > 0] / one.year)), by = "id"]
+lm.bb.df = lm.bb.df[, .SD[1], by = "id"]
+
+lm.statin.df[, adh.statin.1yr := sum(pmin(379, t2) - pmax(t1, 14)) * statin, by = c("id", "t1")]
+lm.statin.df[, adh.statin.1yr := (sum(adh.statin.1yr[adh.statin.1yr > 0] / one.year)), by = "id"]
+lm.statin.df = lm.statin.df[, .SD[1], by = "id"]
+
+##Join with the table that contains patients' info and remove unnecessary columns
+lm.ace.df = left_join(lm.ace.df, measurements, by = "id")
+lm.ace.df = lm.ace.df[, -c(2:8)]
+
+lm.bb.df = left_join(lm.bb.df, measurements, by = "id")
+lm.bb.df = lm.bb.df[, -c(2:8)]
+
+lm.statin.df = left_join(lm.statin.df, measurements, by = "id")
+lm.statin.df = lm.statin.df[, -c(2:8)]
+```
+
+#### ACE Inhibitors
+
+```{r q9_ace}
+lm.ace = lm(adh.ace.1yr ~ age + gender + region + diabetes + baseline.condition + ace.within14, lm.ace.df)
+summary(lm.ace)
+```
+
+According to the results of the regression model, for patients, the conditions of having diabetes, being from Northeast, South, and West, and having subscribed to ACE Inhibitors within the first 14 days are positively associated with the the 1-year adherence rate of ACE Inhibitors, with age, gender, and baseline conditions of moderate symptoms or light procedure being negatively associated with the 1-year adherence rate of ACE Inhibitors. Whether a patient has filled for subscription has the greatest impact on the adherence rate.
+
+#### Beta Blockers
+
+```{r q9_bb}
+lm.bb = lm(adh.bb.1yr ~ age + gender + region + diabetes + baseline.condition + bb.within14, lm.bb.df)
+summary(lm.bb)
+```
+
+According to the results of the regression model, for patients, the conditions of having diabetes, being from Northeast, South, and West, and having subscribed to Beta Blockers within the first 14 days are positively associated with the the 1-year adherence rate of Beta Blockers, with age, gender, and baseline conditions of moderate symptoms or light procedure being negatively associated with the 1-year adherence rate of Beta Blockers. Whether a patient has filled for subscription has the greatest impact on the adherence rate.
+
+#### Statins
+
+```{r q9_statin}
+lm.statin = lm(adh.statin.1yr ~ age + gender + region + diabetes + baseline.condition + statin.within14, lm.statin.df)
+summary(lm.statin)
+```
+
+According to the results of the regression model, for patients, the conditions of having diabetes, being from Northeast, South, and West, and having subscribed to Statins within the first 14 days are positively associated with the the 1-year adherence rate of Statins, with age, gender, and baseline conditions of moderate symptoms or light procedure being negatively associated with the 1-year adherence rate of Statins. Whether a patient has filled for subscription has the greatest impact on the adherence rate.
+
+### Q10 {.tabset}
+
+Once a patient starts a medication, how long do they continuously have a filled prescription? For each patient who filled a medication, start with the first filled prescription and count the duration of days until a gap occurs or follow-up ends (Hint: The first duration begins the first time ace = 1. The first duration ends at the first time ace = 0 after this point. Each patient will have 1 calculated duration if they filled a prescription and 0 otherwise). Then provide the mean, median, and standard deviation for these durations. Do this separately for each medicine.
+
+```{r q10}
+first.duration = function(med){
+  start.time = adherence[order(t1)][get(med) == 1, .SD[1], by = id][, .SD, .SDcols = c("id", "t1", "t2", list.of.meds)][, setnames(.SD, c("id", "from.t1", "from.t2", paste0("from.", list.of.meds)))]
+  adherence[start.time, on = .(id)][get(med) == 0][from.t1 < t1][order(t1), .SD[1], by = id][, .(duration = t1 - from.t1)][, stats.sum(duration)]
+}
+```
+
+#### ACE Inhibitors
+
+```{r q10_ace}
+first.duration("ace")
+```
+
+#### Beta Blockers
+```{r q10_bb}
+first.duration("bb")
+```
+
+#### Statins
+```{r q10_statin}
+first.duration("statin")
+```

@@ -1,0 +1,189 @@
+---
+title: "Medication Adherence:  Training Material"
+author: ""
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r seed}
+set.seed(41)
+```
+
+```{r libraries}
+#We load the libraries we use in our report in this section. R libraries, or packages, in the R programming language serve the purpose of extending the functionality of R by providing pre-written code for tasks like data analysis and visualization. They enable users to import and manipulate data, perform analyses, and create reproducible reports. 
+
+#Task: load packages rmarkdown, knitr, and dplyr. Below is an example on how to load the libraries
+library(data.table)
+library(DT)
+
+#Solution
+library(rmarkdown)
+library(knitr)
+library(dplyr)
+```
+
+```{r constants}
+#Create r variables that will be regularly used throughout the report 
+
+#Task: Create an array consisting of the following categories "statin", "bb", "ace", called this instance medication_cols
+
+#Task: Create an two instances that refer to the strings,  t1 and t2, name those instances t1.name and t2.name
+
+#Ex: Create an instance name id.name to store "id"
+id.name <- "id"
+
+#Solution: 
+
+t1.name <- "t1"
+t2.name <- "t2"
+medication_cols <- c("statin", "bb", "ace")
+```
+
+```{r functions}
+round.numerics <- function(x, digits){
+  if(is.numeric(x)){
+    x <- round(x = x, digits = digits)
+  }
+  return(x)
+}
+```
+
+```{r load_data}
+#Task: Create adherence.data customer, which refers to a object of type data table and data frame that has the customer.csv file. An example is done below
+
+#Ex: Create an instance of baseline.data using the function fread
+baseline.data <- fread(input = "baseline measurements.csv")
+
+#Solution:
+adherence.data <- fread(input = "adherence.csv")
+
+```
+
+```{r explore_data, eval = FALSE}
+
+```
+
+
+```{r clean_data}
+
+```
+
+
+## Introduction
+
+The ability to be able to analyze data is crucial for any prospective data scientist. Honing your data analytics skill provides a foundation for users to build their data manipulation skills, gain proficiency in using built-in R functions, and develop problem-solving and critical thinking abilities when analyzing and manipulating data. 
+
+Two skills I improved on with this project was my data manipulation and problem-solving skill.more specifically I was able to improve my usage of using built-in R functions like sum(), unique (), etc. and transforming data in ways such as merging data frames, filtering data based on specific conditions, selecting specific columns, and summarizing data using grouping operations. These skills are crucial for data cleaning, data wrangling, and preparing data for further analysis.
+
+Another skill I was able to perfect was my critical thinking and problem solving skill by identifying the correct functions to achieve a specific task, constructing suitable conditions for filtering data, and determining the appropriate columns to select or group by. These skills are valuable for data analysis and can be transferred to other programming and analytical tasks as well.
+
+The following examples are meant to strengthen your data transformation and critical thinking skills! Let's see how you do! Complete each example and than review the solution. 
+
+***Remember if you ever get stuck r has an online source called RDocumentation which is helpful and you can use the help() function which accesses the documentation of a specific function.*** 
+
+### Training Example 1
+
+Example 1: How can I count the number of patients who have possession of the prescribed medication "statin" within the first month?
+
+#### Answer
+
+```{r part1_q2}
+#### Enter Your Answer#####
+
+
+
+
+#### End Answer #####
+
+#Solution
+
+#Step 1: Filter for when statin is prescribed (statin == 1) and when t1< 31 to show the first month 
+
+statin_first_month <- adherence.data[statin == 1 & t1 < 31]
+
+#Step 2: Count the unique patient ids using the length and unique function 
+statin_first_month[,.(unique_patients = length(unique(id)))]
+
+
+
+```
+### Training Example 2
+
+Example 2: A patient's **length of follow-up** is the amount of time after diagnosis for which they were under observation (with records in the data).  Create a column called follow_up which calculates a patient's length of follow up. Additionally create a function that calculates the percentage of the patients had at least x days of records?
+
+#### Answer
+
+```{r part1_q1}
+#### Enter Your Answer#####
+
+
+
+
+#### End Answer #####
+
+#Solution
+
+#Step 1: Calculate the follow-up time using the max(t2) and the min(t1), group by patient id
+
+adherence.data <- adherence.data[, follow_up := max(t2) - min(t1), by = id]
+
+#Step 2:
+
+calculate_percentage_of_patients <- function(x) {
+ 
+  # Step 2: Filter the follow-up column so it is more than or equal to X and select unique ids
+  overX <- adherence.data[follow_up >= x, unique(id)]
+  
+  #Step 3: Calculate the percentage of patients 
+  percentage <- (length(overX) / length(unique(adherence.data$id))) * 100
+  
+  #Step 4: format the percentage
+  percentage <- sprintf("%.2f", percentage)
+
+  return(percentage)
+}
+
+#Step 5: Test Function
+percentage_2_year <- calculate_percentage_of_patients(730)
+print(percentage_2_year)
+
+
+```
+
+### Training Example 3
+
+What is the impact of age and gender on the one-year adherence to the beta blocker medication?  Use only the patients with at least 1 year (365 days) of follow-up records. 
+
+#### Answer
+
+```{r part1_q3}
+#### Enter Your Answer#####
+
+
+
+
+#### End Answer #####
+
+#Solution
+
+#Step 1: Combine the data  
+combined_data <- merge(baseline.data, adherence.data, by = id.name, all.x = TRUE)
+
+#Step 2: Filter the data so it only includes patient and calculate the adherence of beta blockers
+dat <- combined_data[follow_up >= 365][, adherence := rowSums(.SD), .SDcols = medication_cols[2]]
+
+#Step 3: Fit linear regression model for beta blockers using the lm function
+lm_model <- lm(adherence ~  age + gender , data = dat)
+
+#Step 4: Print Results
+print(summary(lm_model))
+
+
+
+```
+
+
+

@@ -1,0 +1,165 @@
+---
+title: "Medication Adherence: Training Material"
+author: "Joy Tay"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r working directory}
+# Set working directory to the source file's location
+  # Click Session > Set Working Directory > To Source File Location
+  # Code example: setwd("path/to/project/folder")
+```
+
+```{r clear memory}
+# Clear memory
+rm(list = ls())
+```
+
+```{r libraries}
+# Read in libraries
+library(data.table)
+library(DT)
+```
+
+```{r constants}
+# Define constants
+id.name <- "id"
+t1.name <- "t1"
+med.ace <- "ace"
+
+duration.days <- 365
+first.n.days <- 14
+
+age.categories <- c(31, 45, 60, 75, Inf)
+age.category.labels <- c("30-45", "46-60", "61-75", "76+")
+```
+
+```{r functions}
+# Define functions
+round.numerics <- function(x, digits){
+  if(is.numeric(x)){
+    x <- round(x = x, digits = digits)
+  }
+  return(x)
+}
+```
+
+```{r load_data}
+# Load data
+adherence <- fread(input = "adherence.csv")
+b_measurements <- fread(input = "baseline measurements.csv")
+```
+
+```{r sort_data}
+# Sort Data
+setorderv(x = adherence, cols = c(id.name, t1.name))
+```
+
+# Introduction
+
+This training report aims to provide a concise overview of the valuable skills and challenges encountered while working with the client's data for the project. The report highlights the 3 key challenges that were particularly significant when deriving insights from the data. These include:
+
+1. Sub-setting the data for a specific time frame 
+2. Categorizing patients according to their filled prescription status
+3. Aggregating Data to Perform Grouped Computations
+
+Examples and clear instructions will be provided to offer insights into the intricacies of working with complex data and help other consultants navigate the data successfully for future collaboration.
+
+# Challenge 1: Sub-setting the data for a specific time frame 
+
+To conduct an analysis within a specific time frame, it was crucial to know how to subset the data for different time intervals. However, this task was particularly challenging as the data provided did not have a continuous time column, but had 't1' and 't2' columns, representing the start and end times of each follow-up appointment. Thus, I had to carefully adjust the 't1' and 't2' columns using functions like 'pmin' and 'pmax' and account for any overlapping periods.
+
+### Example 1: Calculating the Follow-Up Duration for Each Record for the First Year
+
+To calculate the follow-up duration specifically for the first year (365 days), I applied a two-step process (shown under *Follow-Up Duration Calculation*). Firstly, I filtered the records by ensuring that t1 was less than 365 days, selecting only the relevant data within the desired time frame. Secondly, I used the pmin function to limit t2 to a maximum of 365 days, accounting for follow-ups that starting before but extended beyond the 1-year mark. I created a new 'adj.t2' column to store this value. Finally, I calculated the follow-up duration by subtracting t1 from adj.t2 for each patient record. 
+
+It's worth noting that I implemented adjustable parameters, like "duration.days", to allow for easy customization of the time duration when extracting records. This provides flexibility in analyzing data for different time frames. Moreover, the chaining operation helped to make the code more succinct and reduced the need for additional variables or tables.
+
+```{r}
+# Data
+patients.n.yr.follow.up <- adherence[ , tot_lngth_of_follow_up := max(t2), by = id.name][tot_lngth_of_follow_up >= duration.days]
+
+# Follow-Up Duration Calculation
+first.n.yr.records <- patients.n.yr.follow.up[t1 < duration.days][, adj.t2 := pmin(duration.days,t2)][, follow_up_duration := adj.t2 - t1]
+print(head(first.n.yr.records))
+```
+
+### Example 2 (More Complex): Calculating the Follow-Up Duration for Each Record Between Days 14-379
+
+In this more complex example, I had to limit t1 to a minimum of 14 days using the pmax function and assign this value to a newly created column named 'adj.t1'. Then, like Example 1, I used the pmin function to limit t2 to a maximum of 365 days but this time considering the additional 14-day period. Subsequently, I filtered for the days between day 14 and day 379 using the adjusted columns, before calculating the follow-up duration. It is once again worth highlighting that the inclusion of the first 14 days as an adjustable parameter allows the client to modify this value as desired.
+
+```{r}
+# Data
+patients.lngth.follow.up <- adherence[ , tot_lngth_of_follow_up := max(t2), by = id][tot_lngth_of_follow_up >= (duration.days + first.n.days)]
+
+# Follow-Up Duration Calculation
+patients.n.yr.follow.up[, adj.t1 := pmax(first.n.days,t1)][, adj.t2 := pmin((duration.days + first.n.days),t2)]
+records.n.yr.after.m.days <- patients.n.yr.follow.up[adj.t2 > first.n.days & adj.t1 < (duration.days + first.n.days)]
+follow.up.duration <- records.n.yr.after.m.days[, follow_up_duration := adj.t2 - adj.t1]
+print(head(follow.up.duration))
+```
+
+# Challenge 2: Categorizing patients according to their filled prescription status
+
+Investigating whether patients filled their prescriptions within a specific time period after diagnosis posed as a challenge due to variations in medication initiation timings for all patients. To tackle this challenge, I applied a two-step process. Firstly, I took a subset of the data for the time period desired. Then, I determined whether individuals filled their medication any time within that time period using the max(get(med.ace)) function, which assigned a value of 1 if the medication was filled and 0 otherwise. This information was captured in a new column named 'filled_prscrp', allowing for categorization of each individual accordingly. By using this approach, I successfully categorized patients according to their filled prescription status, enabling further analysis.
+
+```{r}
+# Patient Follow-Up Length Data
+patients.lngth.follow.up <- adherence[ , tot_lngth_of_follow_up := max(t2), by = id][tot_lngth_of_follow_up >= (duration.days + first.n.days)]
+
+# Categorizing Patients
+records.first.n.days.prscrp <- adherence[t1 < first.n.days, filled_prscrp := max(get(med.ace)), by = id]
+# Only get patients that filled prescriptions within the time period
+filled.patients <- records.first.n.days.prscrp[filled_prscrp == 1 & get(med.ace) == 1]
+print(head(filled.patients))
+```
+
+# Challenge 3: Aggregating Data to Perform Grouped Computations
+
+Aggregating data was also crucial for deriving meaningful insights. Grouped computations allowed me to transform granular information into age-specific insights, which were essential for answering questions related to adherence variations among different age groups. To achieve this, I categorized the age column into predefined age categories and then calculated the mean, median, and mode for each respective group. 
+
+```{r}
+# Ace Medication Data
+med.records <- adherence[get(med.ace) == 1]
+merged.data <- merge(med.records, b_measurements, by = id.name, all.x = TRUE)
+
+# Categorize patients into age groups 
+merged.data[, age_group := cut(age, breaks = age.categories, labels = age.category.labels, include.lowest = TRUE)]
+
+# Calculate follow up duration within n years
+first.n.yr.records <- merged.data[t1 <= duration.days][, adj.t2 := pmin(duration.days,t2)][, follow_up_duration := adj.t2 - t1][, total_possession := sum(follow_up_duration), by = id]
+
+# Calculate the mean, median and mode for adherence for each age group
+n.yr.adherence <- first.n.yr.records[, adherence_proportion := total_possession/duration.days]
+age.adherence <- n.yr.adherence[, .(mean_adherence = mean(adherence_proportion)), by = age_group][order(age_group)]
+age.adherence.rounded <- age.adherence[, lapply(X = .SD, FUN = "round.numerics", digits = 3)]
+print(age.adherence.rounded)
+```
+
+# Additional Training Instructions
+
+Here are some tips for using the report template.
+
+### 1. Setting the Working Directory
+
+-   Before running the report, it is essential to set the working directory to the source file's location and ensure that all the data files are stored in that same file.
+    -   This can be done by following these steps: Click Session \> Set Working Directory \> To Source File Location
+
+### 2. Defining Report-Level Constants
+
+- It is essential to check that the defined constants at the top of the report are in line with the client's requests. 
+- Any changes should be updated accordingly.
+
+### 3. Cleaning the Data
+
+- While the current data from the client does not require additional cleaning, it is advisable to thoroughly explore any new data provided to ensure it is aligned with the structure of the initial dataset. 
+- This process is integral to maintain consistency and to avoid any potential issues or discrepancies that may arise from using incompatible or inconsistent data.
+
+# Contact for Additional Support
+
+All these tips provided should help you utilize and understand the data. Feel free to contact me at [jwt2131\@columbia.edu](mailto:jwt2131@columbia.edu){.email} for any further clarification.
+
