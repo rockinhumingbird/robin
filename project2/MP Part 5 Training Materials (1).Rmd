@@ -1,0 +1,141 @@
+---
+title: "Image Processing:  Training Material"
+author: ""
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r seed}
+set.seed(41)
+```
+
+```{r libraries}
+library(data.table)
+library(DT)
+```
+
+```{r constants}
+
+```
+
+```{r functions}
+round.numerics <- function(x, digits){
+  if(is.numeric(x)){
+    x <- round(x = x, digits = digits)
+  }
+  return(x)
+}
+```
+
+```{r load_data}
+
+```
+
+```{r explore_data, eval = FALSE}
+
+```
+
+
+```{r clean_data}
+
+```
+
+
+
+## Introduction
+
+
+### Skill 1: Importance of Label Preparation in Image Classification
+
+The following chunk demonstrates a function for training one of the image classification models we built using the rpart algorithm and evaluating its accuracy on test data. One crucial step in this process is the preparation of the label data, which involves converting the labels to numeric values for model training and evaluation.
+
+In machine learning, algorithms typically require numeric input data, which means that non-numeric data, such as categorical labels (e.g., different fashion product categories), needs to be converted to numeric representations. This process of converting categorical labels to numeric values can be challenging, especially when dealing with a large number of categories or complex label structures.
+
+Specifically in our case, neural network, rpart, XGBoost, SVM, Elastic Net, Lasso Regression, and Ridge Regression require encoding or converting to numerics to work. In summary, for the mathematical operations and algorithm compatibility, it's best to keep in mind that always prepare the label in image processing.
+
+```{r}
+rpart_model <- function(train_data, test_data) {
+  # Record start time
+  start_time <- Sys.time()
+  # Convert the label column to a factor
+  train_data$label <- as.factor(train_data$label)
+  # Fit the model
+  model <- rpart(label ~ ., 
+                 data = train_data, 
+                 method = "class", 
+                 control = rpart.control(cp = 0.01))
+  # Prepare test data for prediction
+  test_input <- test_data
+  test_labels <- as.factor(test_data$label)
+  test_input$label <- NULL
+  # Predict on the test data
+  pred_test <- predict(model, newdata = test_input, type = "class")
+  # Calculate accuracy
+  accuracy <- sum(pred_test == test_labels) / length(test_labels)
+  # Record end time
+  end_time <- Sys.time()
+  # Calculate and print the time taken
+  time_taken <- round(difftime(end_time, start_time, units = "secs"), 2)
+  result <- list(
+    Time = time_taken,
+    Accuracy = accuracy)
+  return(result)
+}
+```
+### Skill 2: Understand the Nature of the Data and Limitation on the Data  Preprocessing Before Modeling
+
+The nature of the data in the MNIST Fashion database presents some limitations on feature engineering due to the representation of each feature (pixel) in the image. Since each feature represents a specific part of the picture, traditional feature engineering techniques that involve creating new meaningful representations (such as WOE transformation) based on domain knowledge may not be directly applicable. 
+
+In this context, by condensing the original 28x28 images into 7x7 images (49 pixels), a significant amount of spatial information is lost, making it challenging to engineer features that initially represent complex patterns. Besides, the data is pixel-based, meaning each pixel's brightness value is treated as an individual feature. In this representation, there is little inherent semantic meaning in each feature, and direct feature engineering approaches like scaling, binning, or normalization may not yield substantial benefits. 
+
+Also bear in mind that despite the reduction to 49 pixels per image, the dataset remains high-dimensional, making it computationally expensive and difficult to handle data preprocessing techniques. Any transformation might require dimension reduction that will not necessarily improve the classification power. 
+
+Apart from that, when experimenting with different techniques and models, it's essential to be vigilant about the fact that data transformations that benefit one model may not be suitable for all models. Each machine learning model has its assumptions, requirements, and characteristics, and the effectiveness of data transformations can vary significantly depending on the model's nature. 
+
+### Skill 3: Understand Scoring Function and Trade-offs 
+
+The project introduced an overall scoring function, "Points," to assess the quality of the classification method. Understanding the scoring function and the trade-offs between data size, computation time, and classification accuracy was crucial in guiding the model selection process. 
+
+Key trade-offs include: Sample Size vs. Accuracy, Processing Time vs. Accuracy, and Model Complexity vs. Processing Time. Take the third trade-off for example, it was challenging for Elastic Net to find the optimal hyperparameters, but when you incorporate cross-validation for selecting the best hyperparameter in the process, the model became complex and it increased the processing time significantly. It did render better accuracy, but it compromised other criteria in evaluating the model efficiency and effectiveness. 
+
+In order to find the best models, understanding carefully the scoring metrics and the weighing of sample size, processing time and accuracy is an essential skill.
+
+By taking sample size, processing time and model accuracy into account, our company can recommend the most suitable models for the client's fashion product image classification task upon their demand and computational cost, enabling optimized  utilization of machine learning models in real-world applications.
+
+```{r}
+### points
+points <- function( A, B, C){
+  total.points <- (0.15*A) + (0.1*B) + (0.75*C)
+  return(total.points)
+}
+
+### Function for inserting row values for each model & calculate points
+# a = sample size
+# b = time duration
+# c = accuracy
+results_table <- function(model, sample_size, data_name, a, b, c) {
+        new.row <- data.frame(
+          Model = model,
+          Sample_Size = sample_size,
+          Data = data_name,
+          A = a /60000,
+          B = min(1, (round.numerics(as.numeric(b), 4)/60)),
+          C = 1 - c,
+          Points = points( a /60000 , min(1, (round.numerics(as.numeric(b), 4)/60)), 1 - c)
+        )
+        appending_table <<- append(appending_table, list(new.row))
+  return(appending_table)
+}
+
+### Function to generate scoreboard for each model & sample size
+score <- function(data){
+  # group results by model & sample size, get mean
+  score.90rows <- as.data.table(data)
+  score.board <- score.90rows[,.(A = round(mean(A),4), B = round(mean(B),4), C = round(mean(C),4), Points = round(mean(Points),4)), by=c("Model", "Sample_Size")]
+  return(score.board)
+}
+```
+

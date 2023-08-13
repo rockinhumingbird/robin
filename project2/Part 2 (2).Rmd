@@ -1,0 +1,233 @@
+---
+title: "Image Processing:  Additional Analyses"
+author: ''
+date: "2023-07-22"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r seed}
+set.seed(41)
+```
+
+```{r libraries}
+library(data.table)
+library(DT)
+library(caret)
+library(glmnet)
+library(class)       
+library(rpart)       
+library(randomForest) 
+library(e1071)      
+library(gbm)        
+library(nnet) 
+library(tidyverse)
+```
+
+
+
+```{r constants}
+n.values <- c(500, 1000, 2000)
+iterations <- 3
+validation_prop <- 0.2
+```
+
+
+
+```{r load_data}
+train <- fread(input = "MNIST-fashion training set-49.csv", verbose = F)
+test <- fread(input = "MNIST-fashion testing set-49.csv", verbose = F)
+```
+
+```{r clean_data}
+#assigning numeric values to the label col
+#unique_labels <- unique(train$label)
+#label_mapping <- as.numeric(factor(train$label, levels = unique_labels))
+#train$numeric_label <- label_mapping
+names(train)
+unique(train$label)
+```
+
+
+```{r functions}
+create_model_development_datasets <- function(data, n, num_datasets) {
+  datasets <- list()
+  for (i in 1:num_datasets) {
+    if (n == nrow(data)) {
+      # If full sample size is selected, sample with replacement
+      dataset <- data[sample(1:nrow(data), size = n, replace = TRUE), ]
+    } else {
+      # For other sample sizes, sample without replacement
+      dataset <- data[sample(1:nrow(data), size = n, replace = FALSE), ]
+    }
+    datasets[[i]] <- dataset
+  }
+  return(datasets)
+}
+
+
+run_model<-function(model_name){
+  results <- list()
+  
+  for (n in n.values) {
+      for (i in 1:iterations) {
+          dataset_name <- paste0("dat_", n, "_", i)
+          result <- model_name(model_development_datasets[[as.character(n)]][[i]], test)
+          results[[dataset_name]] <- result
+          
+          # Display the results
+          cat(sprintf("Sample Size: %d | Iteration: %d | Running Time: %f seconds | Misclassification Rate: %f\n", n, i, result$runtime, result$misclass_rate))
+      }
+  }
+}
+
+
+```
+
+ 
+```{r generate_samples}
+model_development_datasets <- list()
+for (n in n.values) {
+  model_development_datasets[[as.character(n)]] <- create_model_development_datasets(train, n, num_datasets = 3)
+}
+```
+
+
+
+## Introduction
+In this assignment, this job is mainly to classify images to products. Through random forest model, KNN, SVM, unordered multi-classification logistic regression model and other machine learning algorithms, use random forest model, KNN, SVM, unordered multi-classification logistic regression model and other models to predict the classification of products. By comparing the Misclassification rate of each model and the running time of the model, I will investigate my best model's predictive acc Uracy on each of the kinds of fashion products it is trained to identify. When the number of samples in the selected training set reaches 2000, the accuracy of the random forest model is the highest, the Miss classification Rate is around 0.2, the accuracy of the model is around 80%, and the running time of the model is within 1 second. The random forest algorithm has the highest classification accuracy for images.
+
+
+
+## Predictive Accuracy by Product
+
+
+
+### Model 
+My preferred model from Part 1 is the random forest model. When the Sample Size is 500, the running time is 0.15-0.3 seconds, and the Misclassification Rate is in the range of 0.23-0.25. When the Sample Size is 1000, the running time is 0.26-0.28 seconds, and the Misclassification Rate is in the range of 0.21-0.22. When the Sample Size is 2000, the running time is 0.5-0.65 seconds, and the Misclassification Rate is around 0.20.
+It can be seen that as the sample size increases, the average running time of the model will increase, but the Misclassification Rate will decrease significantly.
+
+
+
+```{r code_model5_development, eval = TRUE}
+model5_rf <- function(data, test_data) {
+    # Split features and target label
+    train_x <- data[, -1]  # assuming 'label' is the first column
+    train_y <- as.factor(data$label)
+    
+    test_x <- test_data[, -1]
+    test_y <- as.factor(test_data$label)
+
+    # Record start time
+    start_time <- Sys.time()
+    
+    # Train Random Forest
+    rf_model <- randomForest(train_x, y=train_y, ntree=100)
+    
+    # Predict on the test set
+    predictions <- predict(rf_model, test_x)
+    
+    # Record end time
+    end_time <- Sys.time()
+    
+    # Calculate running time
+    runtime <- as.numeric(difftime(end_time, start_time, units = "secs"))
+    
+    # Calculate classification rate
+    misclass_rate <- sum(predictions != test_y) / length(test_y)
+    
+    return(list(runtime = runtime, misclass_rate = misclass_rate, model = rf_model))
+}
+```
+
+```{r load_model5}
+run_model(model5_rf)
+```
+
+
+```{r}
+train_x <- train[, -1] 
+train_y <- as.factor(train$label)
+    
+test_x <- test[, -1]
+test_y <- as.factor(test$label)
+
+# Train Random Forest
+rf_model <- randomForest(train_x, y=train_y, ntree=100)
+    
+# Predict on the test set
+predictions <- predict(rf_model, test_x)
+misclass_rate <- sum(predictions != test_y) / length(test_y)
+accuracy_rate=1-misclass_rate
+accuracy_rate
+confusionMatrix(factor(predictions),factor(test_y))
+    
+    
+
+    
+        
+df<-data.frame(lable=test_y,predict_lable=predictions)  
+
+df$lable_pre<-ifelse(df$lable==df$predict_lable,1,0)  
+
+df%>%
+  group_by(lable)%>%
+  summarise(accuracy=sum(lable_pre)/n())
+```
+
+
+
+## Independent Investigation
+Based on the previous analysis, the random forest model predicts labels with higher accuracy and less running time.
+I will mainly investigate two questions. The first question is to select all the training set data for training the model, and test the accuracy of the model in the test set. How accurate can the model be?
+The second question is based on the random forest model obtained from all training set data, which label has the highest prediction accuracy, and which labels has the lowest prediction accuracy? What products are the labels with low accuracy mainly affected by?
+Using all the train data sets as the training set, the overall accuracy of the model reaches 86.75%, and the Misclassification rate is only 13.25%.
+
+There are large differences in the prediction accuracy of the random forest model for different labels. Among them, the prediction accuracy of the model for Bag is the highest, reaching 97.8%, and the prediction accuracy for Shirt is lower, only 60.2%.
+Through the analysis of Shirt, the model can easily judge that Shirt is T-shirt/top and Pullover, mainly because the similarity between Shirt and T-shirt/top and Pullover is high.
+
+
+```{r explore_data, eval = FALSE}
+library(ggplot2)
+
+ggplot(data =train ,aes(x=label))+
+  geom_bar(fill="steelblue")+
+  labs(title = "lable")
+
+ggplot(data =test ,aes(x=label))+
+  geom_bar(fill="steelblue")+
+  labs(title = "lable")
+```
+
+
+
+
+
+
+```{r}
+   
+      
+df%>%
+  group_by(lable)%>%
+  summarise(accuracy=sum(lable_pre)/n())%>%
+  ggplot(aes(x=reorder(lable,-accuracy),y=accuracy))+
+  geom_bar(stat = 'identity',fill="steelblue",width = 0.5)+
+  geom_text(aes(label = accuracy), vjust = -0.4)+
+  labs(x="lable")
+
+
+
+df%>%
+  filter(lable=='Shirt',predict_lable!='Shirt')%>%
+  group_by(predict_lable)%>%
+  summarise(Count=n())%>%
+  ggplot(aes(x=reorder(predict_lable,-Count),y=Count,fill=predict_lable))+
+  geom_bar(stat = 'identity',width = 0.5)+
+  geom_text(aes(label = Count), vjust = -0.4)+
+  labs(x="lable")
+
+```

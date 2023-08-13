@@ -1,0 +1,502 @@
+---
+title: "Image Processing:  Training Material"
+author: ""
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction {.tabset}
+
+The goal of this report is to help future members of this consulting firm on similar projects dealing with building machine learning models and generating predictive classifications. In this report we will go over the necessary steps, functions created (and how to use them) and how to interpret the results. 
+
+### Set the Seed
+set the seed to 41, this is the company standard.
+```{r seed}
+set.seed(41)
+```
+
+### Load the Necessary Libraries
+These libraries will be used for data anlysis and for buliding the different predictive models
+```{r libraries}
+library(data.table)
+library(DT)
+library(caret)
+library(class)       
+library(rpart)       
+library(randomForest) 
+library(glmnet)     
+library(e1071)      
+library(gbm)        
+library(nnet)
+library(xgboost)
+```
+
+### Load Constants
+Run the following constants which are pre-set values that are used multiple times throughout the anlyses, these can alswys be changed or updated
+
+```{r constants}
+n.values <- c(1000, 2000, 8000)
+iterations <- 3
+validation_prop <- 0.2
+total_sample <- 60000
+```
+
+### Load Functions
+
+Run the following functions which will be used for the data cleaning, analysis, formatting, and building the models. These functions can always be adjusted or updated to fit your needs. 
+
+```{r functions}
+#rounding
+round.numerics <- function(x, digits){
+  if(is.numeric(x)){
+    x <- round(x = x, digits = digits)
+  }
+  return(x)
+}
+
+#function to create samples
+create_model_development_datasets <- function(data, n, num_datasets) {
+  datasets <- list()
+  for (i in 1:num_datasets) {
+    if (n == nrow(data)) {
+      # If full sample size is selected, sample with replacement
+      dataset <- data[sample(1:nrow(data), size = n, replace = TRUE), ]
+    } else {
+      # For other sample sizes, sample without replacement
+      dataset <- data[sample(1:nrow(data), size = n, replace = FALSE), ]
+    }
+    datasets[[i]] <- dataset
+  }
+  return(datasets)
+}
+
+#function to run each model and generate scores
+run_model <- function(model_label,model_name, total_train_rows) {
+  
+  results_df <- data.frame(
+    Model = character(),
+    Sample_Size = numeric(),
+    Data = character(),
+    A = numeric(),
+    B = numeric(),
+    C = numeric(),
+    Points = numeric(),
+    stringsAsFactors = FALSE
+  )
+  
+  for (n in n.values) {
+    for (i in 1:iterations) {
+      
+      dataset_name <- paste0("dat_", n, "_", i)
+      result <- model_name(model_development_datasets[[as.character(n)]][[i]], test)
+      
+      # Compute the metrics
+      A <- n / total_train_rows
+      B <- min(1, result$runtime / 60)
+      C <- result$misclass_rate
+      Points <- 0.15 * A + 0.1 * B + 0.75 * C
+      
+      # Append to the results data frame
+      temp_df <- data.frame(
+        Model = model_label,
+        Sample_Size = n,
+        Data = dataset_name,
+        A = round(A, 3),
+        B = round(B, 3),
+        C = round(C, 3),
+        Points = round(Points, 3)
+      )
+      results_df <- rbind(results_df, temp_df)
+    }
+  }
+  
+  return(results_df)
+}
+
+
+#show scores with calculated field
+average_scores <- function(data){
+    averages_dt <- data[, lapply(.SD, function(x) round.numerics(mean(x), 3)), 
+                        by = .(Model, Sample_Size), .SDcols = c("A", "B", "C", "Points")]
+    setnames(averages_dt, old = c("A", "B", "C", "Points"), 
+            new = c("Average_A", "Average_B", "Average_C", "Average_Points"))
+    averages_dt <- averages_dt[order(Average_Points)]
+    
+    datatable(averages_dt)
+}
+
+```
+
+### Load Data
+
+In our analysis, we used two datasets: the training set and the testing set. The data was loaded using the `fread` function from the `data.table` package. The dataset contained images of clothing items, and as mentioned earlier the goal was to predict the type of clothing based on these images.
+
+```{r load_data}
+train <- fread(input = "MNIST-fashion training set-49.csv", verbose = F)
+test <- fread(input = "MNIST-fashion testing set-49.csv", verbose = F)
+```
+
+## Methodology for Item Prediction Analysis {.tabset}
+
+### Sample Size Selection
+
+To conduct a comprehensive analysis and understand how the machine learning models perform with varying data sizes, we defined three levels of sample sizes: 1000, 2000, and 8000 and stored it as follows: `n.values <- c(1000, 2000, 8000)` in the constants section. These sizes represent different proportions of the original dataset.
+
+Then, we created a custom R function, `create_model_development_datasets`, to efficiently generate subsets from the original dataset for model development and evaluation. This function takes three parameters:
+
+  -   `data`: The original dataset containing the clothing item images.
+  
+  -   `n`: The sample size to be used for each dataset.
+  
+  -   `num_datasets`: The number of datasets to be created at the specified sample size.
+
+The function uses random sampling with or without replacement and can be found in the functions section of the code.
+
+As a last step for the sampling step, we created a model development dataset for each of the sample sizes using the custom function and stored them in a list called `model_development_datasets`:
+
+```{r}
+model_development_datasets <- list()
+for (n in n.values) {
+  model_development_datasets[[as.character(n)]] <- create_model_development_datasets(train, n, num_datasets = 3)
+}
+```
+
+
+### Creating the Models
+
+In order to create the different models, we leveraged a function we build where the only change you will need to make is in the line referring to the model type. 
+You need to provide the following:
+
+  -   `data`: The training dataset containing the features and corresponding labels.
+  
+  -   `test_data`: The testing dataset to evaluate the model's performance.
+  
+  -   `Additional arguments`: You can include any additional arguments required by the specific model fitting function. For example, if your model requires a specific parameter or hyperparameter, you can include it in a code new line.
+  
+The function will also produce how long it taks the model to run (`runtime`), the accuracy of predication (`miscassification_rate`), and the `sample size` which will be used later to analyze the overall score compared to other models.
+
+Our team created 10 models, as follows:
+  -   Multinomial Logistic Regression
+  -   K-Nearest Neighbors (KNN)
+  -   Classification Tree model
+  -   Classification Tree model cp_value  = 0.01
+  -   Random Forest ntree = 100
+  -   Random Forest ntree = 200
+  -   XGboost (2 versions)
+  -   Super Vector Machine Model (2 versions)
+  
+Each model has its pros and cons and they should be taken into consideration when deciding on which ones to use. 
+
+For example, here's how you can use the function for a Random Forest model:
+
+```{r}
+model5_rf <- function(data, test_data) {
+    train_x <- data[, -1]  
+    train_y <- as.factor(data$label)
+    
+    test_x <- test_data[, -1]
+    test_y <- as.factor(test_data$label)
+    start_time <- Sys.time()
+    rf_model <- randomForest(train_x, y=train_y, ntree=100)
+    predictions <- predict(rf_model, test_x)
+    end_time <- Sys.time()
+    runtime <- as.numeric(difftime(end_time, start_time, units = "secs"))
+
+    misclass_rate <- sum(predictions != test_y) / length(test_y)
+    
+    return(list(runtime = runtime, misclass_rate = misclass_rate, model = rf_model))
+}
+```
+
+### Generating Scores Table for Each Machine Learning Model
+
+In this step, we utilize the `run_model` function to generate scores for various machine learning models. The `run_model` function takes three important parameters:
+
+  -   `model_label`: A new name for the model (we used numeric 1,2,3...n to organize).
+  -   `model_name`: The name in which machine learning model to be tested is saved under. 
+  -   `total_train_rows`: The total number of rows in the training dataset which is stored in the constants section under `total_sample`.
+
+The function proceeds to calculate important metrics for each model, such as `runtime` (time taken for training and prediction), `misclassification_rate` (accuracy of predictions), and the `sample size` used for training the model.
+
+Here is an example using `model5_rf` showed in the last step:
+
+```{r}
+model_5_dt <-setDT(run_model("Model 5",model5_rf,total_sample))
+datatable(model_5_dt)
+```
+
+### Finding the Best Model
+
+In the last step, we combine the evaluation scores from all the machine learning models into a single table and then calculate the scoreboard to rank the models based on their average performance. This step involves the following actions:
+
+  -   Table Concatenation: We first combine the evaluation scores of all machine learning models using the rbind function.
+  
+  -   Displaying the Table: Using the datatable function from the DT package, we create an interactive table that presents the combined evaluation scores for all machine learning models. This table allows us to visualize the metrics for each model and their performance on different sample sizes.
+  
+  -   Calculating Average Scores: The average_scores function takes the score data table as input and calculates the average scores for each model across all sample sizes. The function groups the data by Model and Sample_Size, and then computes the average values for metrics A, B, C, and Total Points. These average scores give us an overview of how well each model performs on average across different sample sizes (the lower the better).
+
+```{r include=FALSE}
+model1_mlr <- function(data, test_data) {
+  train_x <- data[, -1]
+  train_y <- as.factor(data$label)
+
+  test_x <- test_data[, -1]
+  test_y <- as.factor(test_data$label)
+
+  start_time <- Sys.time()
+  mlr_model <- nnet::multinom(label ~ ., data = data, maxit = iterations, trace = FALSE)
+  predictions <- predict(mlr_model, newdata = test_data, type = "class")
+  end_time <- Sys.time()
+  runtime <- as.numeric(difftime(end_time, start_time, units = "secs"))
+  misclass_rate <- sum(predictions != test_y) / length(test_y)
+  
+  
+  return(list(runtime = runtime, misclass_rate = misclass_rate, model = mlr_model))
+}
+
+model2_knn <- function(data, test_data) {
+  train_x <- data[, -1] 
+  train_y <- as.factor(data$label)
+
+  test_x <- test_data[, -1]
+  test_y <- as.factor(test_data$label)
+  start_time <- Sys.time()
+  knn_model <- knn(train = train_x, test = test_x, cl = train_y, k = 5) 
+  predictions <- as.factor(knn_model)
+  end_time <- Sys.time()
+  runtime <- as.numeric(difftime(end_time, start_time, units = "secs"))
+
+  
+  misclass_rate <- sum(predictions != test_y) / length(test_y)
+
+  return(list(runtime = runtime, misclass_rate = misclass_rate, model = knn_model))
+}
+
+model3_tree <- function(data, test_data, cp_value = NULL) {
+    train_x <- data[, -1]  
+    train_y <- as.factor(data$label)
+    
+    test_x <- test_data[, -1]
+    test_y <- as.factor(test_data$label)
+
+    start_time <- Sys.time()
+    
+    if (is.null(cp_value)) {
+        ct_model <- rpart(train_y ~ ., data = train_x, method = "class")
+    } else {
+        ct_model <- rpart(train_y ~ ., data = train_x, method = "class", cp = cp_value)
+    }
+    
+    predictions <- predict(ct_model, test_x, type = "class")
+    
+    end_time <- Sys.time()
+    
+    runtime <- as.numeric(difftime(end_time, start_time, units = "secs"))
+    
+    misclass_rate <- sum(predictions != test_y) / length(test_y)
+    
+    return(list(runtime = runtime, misclass_rate = misclass_rate, model = ct_model))
+}
+
+model4_tree <- function(data, test_data, cp_value = 0.01) {
+    train_x <- data[, -1] 
+    train_y <- as.factor(data$label)
+    
+    test_x <- test_data[, -1]
+    test_y <- as.factor(test_data$label)
+
+    start_time <- Sys.time()
+    
+    if (is.null(cp_value)) {
+        ct_model <- rpart(train_y ~ ., data = train_x, method = "class")
+    } else {
+        ct_model <- rpart(train_y ~ ., data = train_x, method = "class", cp = cp_value)
+    }
+    predictions <- predict(ct_model, test_x, type = "class")
+    end_time <- Sys.time()
+    runtime <- as.numeric(difftime(end_time, start_time, units = "secs"))
+    misclass_rate <- sum(predictions != test_y) / length(test_y)
+    
+    return(list(runtime = runtime, misclass_rate = misclass_rate, model = ct_model))
+}
+
+model5_rf <- function(data, test_data) {
+    train_x <- data[, -1]  
+    train_y <- as.factor(data$label)
+    
+    test_x <- test_data[, -1]
+    test_y <- as.factor(test_data$label)
+    start_time <- Sys.time()
+    rf_model <- randomForest(train_x, y=train_y, ntree=100)
+    predictions <- predict(rf_model, test_x)
+    end_time <- Sys.time()
+    runtime <- as.numeric(difftime(end_time, start_time, units = "secs"))
+
+    misclass_rate <- sum(predictions != test_y) / length(test_y)
+    
+    return(list(runtime = runtime, misclass_rate = misclass_rate, model = rf_model))
+}
+
+model6_rf <- function(data, test_data) {
+    train_x <- data[, -1]  
+    train_y <- as.factor(data$label)
+    
+    test_x <- test_data[, -1]
+    test_y <- as.factor(test_data$label)
+
+    start_time <- Sys.time()
+    
+    rf_model <- randomForest(train_x, y=train_y, ntree=200)
+    predictions <- predict(rf_model, test_x)
+  
+    end_time <- Sys.time()
+    
+    runtime <- as.numeric(difftime(end_time, start_time, units = "secs"))
+
+    misclass_rate <- sum(predictions != test_y) / length(test_y)
+    
+    return(list(runtime = runtime, misclass_rate = misclass_rate, model = rf_model))
+}
+
+model7_xgb <- function(data, test_data) {
+    train_x <- as.matrix(data[, -1])  
+    train_y <- as.numeric(as.factor(data$label)) - 1  
+  
+    test_x <- as.matrix(test_data[, -1])
+    test_y <- as.numeric(as.factor(test_data$label)) - 1  
+  
+    dtrain <- xgb.DMatrix(data = train_x, label = train_y)
+    dtest <- xgb.DMatrix(data = test_x, label = test_y)
+  
+    params <- list(
+        booster = "gbtree",
+        eta = 0.3,
+        max_depth = 5,
+        objective = "multi:softmax",  
+        num_class = length(unique(train_y)),  
+        eval_metric = "mlogloss"
+    )
+  
+    start_time <- Sys.time()
+    xgb_model <- xgb.train(params = params, data = dtrain, nrounds = 30)
+    predictions <- predict(xgb_model, dtest)
+    end_time <- Sys.time()
+  
+    runtime <- as.numeric(difftime(end_time, start_time, units = "secs"))
+    misclass_rate <- sum(predictions != test_y) / length(test_y)
+  
+    return(list(runtime = runtime, misclass_rate = misclass_rate, model = xgb_model))
+}
+
+model8_xgb <- function(data, test_data) {
+    train_x <- as.matrix(data[, -1])  
+    train_y <- as.numeric(as.factor(data$label)) - 1  
+  
+    test_x <- as.matrix(test_data[, -1])
+    test_y <- as.numeric(as.factor(test_data$label)) - 1  
+  
+    dtrain <- xgb.DMatrix(data = train_x, label = train_y)
+    dtest <- xgb.DMatrix(data = test_x, label = test_y)
+  
+    params <- list(
+        booster = "gbtree",
+        eta = 0.3,
+        max_depth = 6,
+        objective = "multi:softmax",  
+        num_class = length(unique(train_y)),  
+        eval_metric = "mlogloss"
+    )
+  
+    start_time <- Sys.time()
+    xgb_model <- xgb.train(params = params, data = dtrain, nrounds = 40)
+    predictions <- predict(xgb_model, dtest)
+    end_time <- Sys.time()
+  
+    runtime <- as.numeric(difftime(end_time, start_time, units = "secs"))
+    misclass_rate <- sum(predictions != test_y) / length(test_y)
+  
+    return(list(runtime = runtime, misclass_rate = misclass_rate, model = xgb_model))
+}
+
+model9_svm <- function(data, test_data) {
+    train_x <- data[, -1] 
+    train_y <- as.factor(data$label)
+    
+    test_x <- test_data[, -1]
+    test_y <- as.factor(test_data$label)
+    start_time <- Sys.time()
+    svm_model1 <- svm(train_x, y=train_y, kernel= "radial")
+    predictions <- predict(svm_model1, test_x)
+    end_time <- Sys.time()
+    runtime <- as.numeric(difftime(end_time, start_time, units = "secs"))
+    misclass_rate <- sum(predictions != test_y) / length(test_y)
+    
+    return(list(runtime = runtime, misclass_rate = misclass_rate, model = svm_model1))
+}
+
+model10_svm <- function(data, test_data) {
+    train_x <- data[, -1]  
+    train_y <- as.factor(data$label)
+    
+    test_x <- test_data[, -1]
+    test_y <- as.factor(test_data$label)
+    start_time <- Sys.time()
+    svm_model2 <- svm(train_x, y=train_y, kernel= "polynomial", degree=3)
+    predictions <- predict(svm_model2, test_x)
+    end_time <- Sys.time()
+    runtime <- as.numeric(difftime(end_time, start_time, units = "secs"))
+    misclass_rate <- sum(predictions != test_y) / length(test_y)
+    
+    return(list(runtime = runtime, misclass_rate = misclass_rate, model = svm_model2))
+}
+```
+
+```{r include=FALSE}
+model_1_dt <-setDT(run_model("Model 1",model1_mlr,total_sample))
+datatable(model_1_dt)
+
+model_2_dt <-setDT(run_model("Model 2",model2_knn,total_sample))
+datatable(model_2_dt)
+
+model_3_dt <-setDT(run_model("Model 3",model3_tree,total_sample))
+datatable(model_3_dt)
+
+model_4_dt <-setDT(run_model("Model 4",model4_tree,total_sample))
+datatable(model_4_dt)
+
+model_5_dt <-setDT(run_model("Model 5",model5_rf,total_sample))
+datatable(model_5_dt)
+
+model_6_dt<-setDT(run_model("Model 6",model6_rf,total_sample))
+datatable(model_6_dt)
+
+model_7_dt<-setDT(run_model("Model 7",model7_xgb,total_sample))
+datatable(model_7_dt)
+
+model_8_dt<-setDT(run_model("Model 8",model8_xgb,total_sample))
+datatable(model_8_dt)
+
+model_9_dt<-setDT(run_model("Model 9", model9_svm,total_sample))
+datatable(model_9_dt)
+
+model_10_dt<-setDT(run_model("Model 10", model10_svm,total_sample))
+datatable(model_10_dt)
+```
+
+```{r}
+score<-rbind(model_1_dt,model_2_dt,model_3_dt,model_4_dt,model_5_dt,model_6_dt,model_7_dt,model_8_dt,model_9_dt,model_10_dt)
+datatable(score)
+averages_dt<-average_scores(score)
+averages_dt
+```
+
+## Final Thoughts
+
+Reflecting upon the findings, it becomes evident that while larger datasets enhance prediction accuracy, it's imperative to maintain a judicious balance with computational efficiency. The performance metrics substantiate that ensemble methods, specifically Random Forest and XGBoost, exhibit a favorable combination of accuracy and efficiency for our dataset, compared to simpler models like KNN or logistic regression.
+
+This observation underscores the importance of model selection tailored to the dataset's nature. Furthermore, while larger samples enhance accuracy, the marginal improvement might not always justify the significantly increased computational demands, especially in time-sensitive applications.
+
+Our analysis posits that for classifying labels in our specific context, Random Forest and XGBoost are the superior choices. It's imperative to gauge the balance between sample size and computational feasibility, keeping in mind the diminishing returns of accuracy with exponentially larger datasets. Future endeavors could explore further hyperparameter tuning or deep learning models to potentially augment accuracy. As always, the model's choice should be tailored to the data and the problem at hand, ensuring efficiency, accuracy, and applicability.

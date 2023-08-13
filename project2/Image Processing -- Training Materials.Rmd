@@ -1,0 +1,225 @@
+---
+title: "Image Processing:  Training Material"
+author: "Joy"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r seed}
+set.seed(1031)
+```
+
+```{r working directory, include=FALSE}
+# Set working directory to the source file's location
+  # Click Session > Set Working Directory > To Source File Location
+  # Code example: setwd("path/to/project/folder")
+```
+
+```{r clear memory, include=FALSE}
+# Clear memory
+rm(list = ls())
+```
+
+```{r libraries}
+library(data.table)
+library(DT)
+```
+
+```{r load_data}
+train <- fread(input = "MNIST-fashion training set-49.csv")
+test <- fread(input = "MNIST-fashion testing set-49.csv")
+```
+
+```{r clean_data}
+train[,label:=as.factor(label)]
+test[,label:=as.factor(label)]
+```
+
+## Introduction
+
+This training report provides a concise overview of the valuable skills and challenges encountered while working with the client's data. The report highlights 3 key challenges that were particularly significant. These include:
+
+1. Tuning Model Parameters to Improve Accuracy
+2. Ensuring Predictions are in the Right Format
+3. Developing Reusable Functions for Iterating Through Multiple Training Sets
+
+Examples and clear instructions are provided to help you navigate the client's data successfully.
+
+# Challenge 1: Tuning Model Parameters to Improve Accuracy
+
+One of the most significant challenges we faced was optimizing model accuracy through parameter tuning. As we experimented with various machine learning algorithms, we realized that the selection of hyperparameters had a significant impact on the model's performance. However, we also had to consider the trade-off between accuracy and run-time efficiency, ensuring that our code did not take too long to execute. The process of parameter tuning required careful attention and a good understanding of each model's hyperparameters. We found that employing techniques like cross-validation and grid search was essential for identifying the optimal combination of hyperparameters.
+
+### Example 1: Hyperparameter Optimization - Neural Network Model
+
+To optimize our neural network model, we used the grid serach technqiue. We began by partitioning the training data into a training set and a validation set. We used the test data as an independent test set for evaluation purposes. To ensure the tuning parameters' applicability across all subset training sets extracted from the train data, we used the entire train dataset to tune the model. We adopted this approach as we noted that optimizing each model individually using subset train samples would be too time-consuming.
+
+All 3 sets (train, validation, and test) were converted to the appropriate format, before we tested out multiple hyperparameters and defined a search criteria. Our primary goal was to identify the model with the lowest logloss, a key metric for assessing model accuracy and predictive power. We used the parameters in the best model to define our final neural network model.
+
+```{r 1.1}
+library(h2o)
+h2o.init()
+h2o.no_progress() 
+
+set.seed(1031)
+split = sample(x = c('train','validation'),size = nrow(train), replace = T,prob = c(0.6,0.4))
+train_nn = train[split=='train',]
+validation_nn = train[split=='validation',]
+test_nn = test
+
+train_h2o = as.h2o(train_nn)
+validation_h2o = as.h2o(validation_nn)
+test_h2o = as.h2o(test_nn)
+
+hyper_parameters = list(activation=c('Rectifier','Tanh','Maxout','RectifierWithDropout','TanhWithDropout','MaxoutWithDropout'),
+                        hidden=list(c(20,20),c(50,50),c(100,100,100), c(30,30,30),c(50,50,50,50),c(25,25,25,25)), 
+                        l1=seq(0,1e-4,1e-6),
+                        l2=seq(0,1e-4,1e-6))
+
+search_criteria = list(strategy='RandomDiscrete',
+                       max_runtime_secs=360,
+                       max_models=100,
+                       seed=1031,
+                       stopping_rounds=5,
+                       stopping_tolerance=1e-2)
+
+grid = h2o.grid(algorithm='deeplearning',
+                grid_id='dl_grid_random',
+                training_frame = train_h2o,
+                validation_frame = validation_h2o,
+                x=2:50,
+                y=1,
+                epochs=10,
+                stopping_metric='logloss', 
+                stopping_tolerance=1e-2,
+                stopping_rounds=2,
+                hyper_params = hyper_parameters,
+                search_criteria = search_criteria)
+
+best_model <- h2o.getModel(grid@model_ids[[1]]) ## model with lowest logloss
+best_params <- best_model@allparameters
+best_params
+```
+
+### Example 2: Hyperparameter Optimization - GBM Model
+
+To optimize our gbm model, we used the cross-validation with 5 folds to avoid over-fitting and evaluate model performance. We specified a grid of hyperparameters to explore different combinations of 'n.trees', 'interaction.depth', 'shrinkage', and 'n.minobsinnode'. The 'cvModel' variable captures the output of the tuning process. By examining 'cvModel$bestTune', we extracted the best parameter values, of which we used in our final model.
+
+```{r 1.2, eval = F}
+library(caret)
+set.seed(1031)
+
+trControl = trainControl(method="cv",number=5) 
+tuneGrid = expand.grid(n.trees = 100, 
+                       interaction.depth = c(1,2,3),
+                       shrinkage = (1:100)*0.001,
+                       n.minobsinnode=c(5,10,15))
+garbage = capture.output(cvModel <- train(model.formula,
+                                          data=train,
+                                          method="gbm",
+                                          trControl=trControl, 
+                                          tuneGrid=tuneGrid))
+# Get parameters of best model
+cvModel$bestTune$n.trees
+cvModel$bestTune$interaction.depth
+cvModel$bestTune$shrinkage
+cvModel$bestTune$n.minobsinnode
+```
+
+# Challenge 2: Ensuring Predictions are in the Right Format
+
+Another critical challenge emerged when we attempted to predict non-numeric factor outcomes using models like gbm, elastic net and XGBoost. By default, some of these models predict numeric values, which posed a challenge in predicting multiclass factors.
+
+### Example 1: GBM and Elastic Net Model
+
+To enable multiclass classification in the gbm and elastic net model, we set the distribution parameter to "multinomial". The type of predictions was set to "response" for gbm and "class" for elastic net. Particularly for the gbm model, we had to convert the predictions to their corresponding factor representation by using a function that iterated through each row of predictions. Within the function, we identified the index with the highest numeric value for each row and extracted the corresponding factor level from the available levels. This allowed us to create predictions in the correct format.
+
+```{r 2.1, eval = F}
+# GBM Model
+models[["gbm"]] <- function(dat.train, dat.test) {
+  set.seed(1031)
+  cvBoost = gbm::gbm(model.formula,
+              data = dat.train,
+              distribution = "multinomial",
+              n.trees = 500,
+              interaction.depth = 3,
+              n.minobsinnode = 5)
+  pred = predict(cvBoost, dat.test, n.trees = 500, type = 'response')
+  predicted_classes <- apply(pred, 1, function(row) {
+  factor_levels <- levels(as.factor(dat.train$label)) 
+  factor_levels[which.max(row)]})
+  return(factor(predicted_classes))
+}
+
+# Elastic Net Model
+models[["elasticnet"]] <- function(data, test_data) {
+  train_x <- as.matrix(data[, -1])  
+  train_y <- data$label
+  test_x <- as.matrix(test_data[, -1])
+  test_y <- test_data$label
+  elasticnet_model <- glmnet(train_x, train_y, alpha = 0.5, family = "multinomial")
+  min_lambda_index <- which.min(elasticnet_model$cvm)
+  predictions <- predict(elasticnet_model, newx = test_x, s = elasticnet_model$lambda[min_lambda_index], type = "class")
+  return(predictions)
+}
+```
+
+### Example 2: XGBoost Model
+
+The process for the XGBboost model was more complicated as the model is designed to make numeric predictions. We had to convert the numeric predictions into non-numeric factors that matched the original factor levels in the training data. To do this, we first rounded the predictions to the nearest factor level. Then, we converted these rounded predictions into factors, specifying the numeric levels of the labels, which ranged from 1 to 10, and the corresponding non-numeric factor levels from the 'train_labels'. By applying 'factor(pred, levels = 1:10, labels = levels(train_labels))', we mapped each numeric prediction to its corresponding non-numeric factor representation based on the factor levels from the training data. 
+
+```{r 2.2, eval = F}
+models[["xgboost"]] <- function(dat.train, dat.test) {
+  train_features <- as.matrix(dat.train[, 2:50])
+  train_labels <- dat.train[[1]]
+  xgboost_model = xgboost(data=as.matrix(train_features), 
+                  label = train_labels,
+                  nrounds = 500,
+                  verbose = 0,
+                  early_stopping_rounds = 20)
+  test_features <- as.matrix(dat.test[, 2:50])
+  test_labels <- dat.test[[1]]
+  pred <- round(predict(xgboost_model, as.matrix(test_features)))
+  pred_w_lables <- factor(pred, levels = 1:10, labels = levels(train_labels))
+  return(pred_w_lables)
+}
+```
+
+# Challenge 3: Developing Reusable Functions for Iterating Through Multiple Training Sets
+
+To streamline the process of creating a total of 90 models, we realized the importance of developing reusable functions. For each model, we wrote a unique function capable of iterating through all the different training sets, thereby minimizing code duplication. We organized these functions into a list to efficiently store each model. The example below shows how we created a list of models and stored the K-Nearest Neighbours Model. We repeated this process for the 10 models created. 
+
+### Example 1: K-Nearest Neighbours Model
+```{r 3.1, eval = F}
+models = list()
+
+models[["knn"]] <- function(dat.train, dat.test) {
+  knn.train <- dat.train[,.SD,.SDcols = !c("label")]
+  knn.test <- dat.test[,.SD,.SDcols = !c("label")]
+  knn.cl <- dat.train[, label]
+  return(knn(train = knn.train, test=knn.test, cl = knn.cl, k=3))
+}
+```
+
+# Additional Training Instructions
+
+### 1. Setting the Working Directory
+
+-   Before running the report, it is essential to set the working directory to the source file's location and ensure that all the data files are stored in that same file.
+    -   This can be done by following these steps: Click Session \> Set Working Directory \> To Source File Location
+
+### 2. Converting labels into factors
+
+- It is essential to convert the labels into factors before splitting the training set and running any of the models.
+- This will enable us to make multi-class predictions. 
+
+### 3. Cleaning the Data
+
+- While the current data from the client does not require additional cleaning, it is advisable to thoroughly explore any new data provided to ensure it is aligned with the structure of the initial dataset. 
+- This process is integral to maintain consistency and to avoid any potential issues or discrepancies that may arise from using incompatible or inconsistent data.
+
+# Contact for Additional Support
+
+All these tips provided should help you utilize and understand the data. Feel free to contact us at [teamMP3\@columbia.edu](mailto:teamMP3@columbia.edu){.email} for any further clarification.
