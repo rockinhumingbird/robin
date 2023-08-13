@@ -1,0 +1,195 @@
+---
+title: "Marketing Survey and Dynamic Application:  Training Material"
+author: ""
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r seed}
+set.seed(41)
+```
+
+```{r libraries}
+library(data.table)
+library(DT)
+
+###These are the packages we are gonna need to build for this training
+library(flexdashboard)
+library(shiny)
+library(formulaic)
+library(rmarkdown)
+library(knitr)
+library(Hmisc)
+```
+
+```{r constants}
+###Now unlike other trainings, building something like a complex dashboard we are gonna separate our constants into a separate file (r script), which will be included in this material packet
+
+###The code we use to call this script is 
+source("Constants.R")
+
+
+```
+
+```{r functions}
+#the same logic applies to functions, the name of the functions file is functions.R. Call it below:
+source("Functions.R")
+```
+
+```{r load_data}
+dat <- fread(input = "mobile phone survey data.csv")
+
+#As always we first read in the data, but also in this section i need to add categorical bins for the age and gender column. Age is already completed for you, try to do income using the following group definitions: Under 50 thousand;
+
+# At least 50 thousand and under 75 thousand;
+# 
+# At least 75 thousand and under 100 thousand;
+# 
+# At least 100 thousand and under 150 thousand;
+# 
+# At least 150 thousand.
+
+#Ex:
+dat$Age_Group <- ifelse(dat$Age >= 18 & dat$Age < 35, "[18,35]",
+                        ifelse(dat$Age >= 35 & dat$Age < 50, "[35,50]",
+                               ifelse(dat$Age >= 50 & dat$Age < 65, "[50,65]", "[65,]")))
+
+####Task 1:
+
+
+#####End Task 1
+
+#####Solution
+
+#Step 1: The code first defines a new variable called Income_Group using the $ operator (dat$..) .
+#Step 2: Then, use the ifelse() function to categorize the Income variable into four groups:
+
+#Note
+# The ifelse() function takes three arguments:
+# The first argument is a logical expression. If the expression is true, the first value is returned. Otherwise, the second value is returned.
+# The second argument is the value that is returned if the logical expression is true.
+# The third argument is the value that is returned if the logical expression is false.
+
+dat$Income_Group <- ifelse(dat$Income < 50000, "[, 50,000]",
+                           ifelse(dat$Income >= 50000 & dat$Income < 75000, "[50,000 , 75,000]",
+                                  ifelse(dat$Income >= 75000 & dat$Income < 100000, "[75,000 , 100,000]", 
+                                         ifelse(dat$Income >= 100000 & dat$Income < 150000, "[100,000 , 150,000]", "[150,000 ,]"))))
+
+```
+
+```{r define_variables, eval = FALSE}
+#While we have a constants file for constants we us ein both the static and dashboard file, these variables are specific to this report (i.e. The Static Report)
+
+#For today's training we will only be focusing on manipulating the respondent variables and state of engagement's variable
+
+#For example let's look at the below code
+unique.income.groups <- dat[, sort(unique(get(income.group.name)))]
+
+#The first line of code, creates a new variable called unique.income.groups. This variable contains a list of all the unique income groups in the data frame dat. The sort() function sorts the list in alphabetical order.
+
+#1. Do the same thing for age_group, gender, regions, persona, and product 
+
+#2. Create a new vector called respondent.variables, which contains the names of all the variables that will be used to define the respondent's profile (age_group, gender, regions, persona, and product ) and a vector states.of.engagement which consists of 5 variables from the Constants.R file
+
+#Task 2
+
+
+##End Task 2
+
+### Solution
+
+#1
+unique.age.groups <- dat[, sort(unique(get(age.group.name)))]
+unique.genders <- dat[, sort(unique(get(gender.name)))]
+unique.income.groups <- dat[, sort(unique(get(income.group.name)))]
+unique.regions <- dat[, sort(unique(get(region.name)))]
+unique.personas <- dat[, sort(unique(get(persona.name)))]
+unique.products <- dat[, unique(get(product.name))]
+
+#2
+respondent.variables <- c(age.group.name, gender.name, income.group.name, region.name, persona.name)
+states.of.engagement <- c(awareness.name, consideration.name, consumption.name, satisfaction.name, advocacy.name)
+
+```
+
+
+```{r clean_data}
+
+```
+
+
+
+## Introduction
+
+The ability to be able to analyze data is crucial for any prospective data scientist. Honing your data analytics skill provides a foundation for users to build their data manipulation skills, gain proficiency in using built-in R functions, and develop problem-solving and critical thinking abilities when analyzing and manipulating data. 
+
+Two skills I improved on with this project was my data manipulation and problem-solving skill.more specifically I was able to improve my usage of using built-in R functions like sum(), unique (), etc. and transforming data in ways such as merging data frames, filtering data based on specific conditions, selecting specific columns, and summarizing data using grouping operations. These skills are crucial for data cleaning, data wrangling, and preparing data for further analysis.
+
+Another skill I was able to perfect was my critical thinking and problem solving skill by identifying the correct functions to achieve a specific task, constructing suitable conditions for filtering data, and determining the appropriate columns to select or group by. These skills are valuable for data analysis and can be transferred to other programming and analytical tasks as well.
+
+The following examples are meant to strengthen your data transformation and critical thinking skills! Let's see how you do! Complete each example and than review the solution. 
+
+***Remember if you ever get stuck r has an online source called RDocumentation which is helpful and you can use the help() function which accesses the documentation of a specific function.*** 
+
+### Training Example 1
+
+Example 1: How can survey the respondent's in percentage terms, for the respondent variable such as region.
+
+#### Answer
+
+```{r part1_q2}
+#### Enter Your Answer#####
+
+
+
+
+#### End Answer #####
+
+#Solution
+
+#The first line of code creates a new variable called tab that calles the percentage.table() function which calculates the percentage of respondents in each category of the respondent.variables[1] variable.
+#respondent.variables[4] = Region
+tab <- percentage.table(x = dat[, .SD[1], by = id.name][, get(respondent.variables[4])])
+
+# The second line of code, , creates a bar plot of the tab variable. The barplot() function plots the percentage of respondents in each category of the respondent.variables[1] variable as a bar. The space=0.01 argument specifies that there should be a small amount of space between the bars. The las = 1 argument specifies that the x-axis labels should be rotated 90 degrees. The main argument specifies the title of the bar plot. The ylab argument specifies the label for the y-axis. The xlab argument specifies the label for the x-axis. The ylim argument specifies the minimum and maximum values of the y-axis. The col = "dodgerblue" argument specifies that the bars should be blue.
+
+#YOU DO NOT NEED TO GO INTO DETAIL JUST SHOWING DIFFERENT WAY YOU CAN CUSTOMIZE YOUR GRAPH! GET CREATIVE :)
+
+barplot(height = tab, space=0.01, las = 1, main = respondent.variables[4], ylab = "Percentage", xlab = respondent.variables[4], ylim = c(0, 1.2*max(tab, na.rm = TRUE)), col = "dodgerblue")
+
+#The third line of code defines a new variable called space_val WHICH is used to specify the amount of space between the labels on the x-axis.
+space_val = 0
+
+#The fourth line of code, uses the text() function adds text to the plot. The x argument specifies the x-coordinates of the labels. The y argument specifies the y-coordinates of the labels. The labels argument specifies the text that should be displayed. The pos = 3 argument specifies that the labels should be placed below the bars.
+
+text(x = -0.4 + 1:length(tab) * (1+space_val), y = tab, labels = sprintf("%.1f%%", tab), pos = 3)
+
+#End Solution
+```
+### Training Example 2
+
+Example 2: What are the top 10 products by Awareness rates in the West amongst male respondents who earn over 100K?
+
+#### Answer
+
+```{r part1_q2}
+#### Enter Your Answer#####
+
+
+
+
+#### End Answer #####
+
+#Solution
+
+#In the 1 -3 line filters the gender, region and the income variable  Then, it calculates the mean of Awareness (states.of.engagement[5])
+#na.rm stipulate there are missing values and to exclude those from calculation
+
+#In the, 4-5 line it ] orders the rows by the Mean variable in descending order, selects the first 5 rows and rounds the numeric values in the Mean variable to 2 decimal places using the round.numeric function.
+
+dat[get(gender.name) == 'Male'& get(region.name) == 'West' & get(income.name) >= 100000, .(Mean = 100 * mean(get(states.of.engagement[5]), na.rm = TRUE)), by = get(product.name)][order(-Mean)][1:5][,lapply(X= .SD, FUN = "round.numerics", digits = 2)]
+#End Solution
+```

@@ -1,0 +1,221 @@
+---
+title: "Image Processing:  Additional Analyses"
+author: ""
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r seed, echo=FALSE}
+set.seed(41)
+```
+
+```{r libraries, include=FALSE}
+library(data.table)
+library(DT)
+library(dplyr)
+library(ggplot2)
+library(randomForest)
+library(lattice)
+library(corrplot)
+
+# Set the CRAN mirror
+options(repos = c(CRAN = "https://cran.rstudio.com/"))
+
+# Install and load the caret package
+if (!requireNamespace("caret", quietly = TRUE)) {
+  install.packages("caret")
+}
+library(caret)
+```
+
+
+```{r load_data, echo=FALSE}
+#dat <- fread(input = "MNIST-fashion training set-49.csv", verbose = F)
+#test <- fread(input = "MNIST-fashion testing set-49.csv", verbose = F)
+dat <- fread(input = "/Users/yientseng/Desktop/Classes/Data Science Consulting/Midterm Project/MNIST-fashion training set-49.csv", verbose = F)
+test <- fread(input = "/Users/yientseng/Desktop/Classes/Data Science Consulting/Midterm Project/MNIST-fashion testing set-49.csv", verbose = F)
+```
+
+```{r explore_data, echo = FALSE}
+```
+
+
+```{r model, echo=FALSE}
+train_2a = dat %>%
+  sample_n(size = 5000, replace = FALSE)
+X_test = test[, -1]
+y_test = as.factor(test$label)
+
+X_train_2a = train_2a[, -1]
+y_train_2a = as.factor(train_2a$label)
+rf_classifier_2a = randomForest(x = X_train_2a, y = y_train_2a, ntree = 200)
+y_pred_rf_2a = predict(rf_classifier_2a, newdata = X_test)
+```
+
+# {.tabset}
+
+## Introduction
+
+The MNIST Fashion Dataset comprises of 60,000 7x7 pixel images, each depicting a unique fashion item belonging to one of the ten classes, including "Ankle boot," "Bag," "Coat," "Dress," "Pullover," "Sandal," "Shirt," "Sneaker," "T-shirt/top," and "Trouser." These images represent real-world fashion products and have been carefully curated to encompass a wide range of styles, ensuring the dataset's variety and complexity.
+  
+To further investigate this rich dataset, we will evaluate the performance of the best performing model that we generated in Part 1 of our Project and examine the pixel format of the dataset through confusion matrix and correlation plot. These analyses aim to improve the accuracy and identify areas of improving the model for the social media company to better utilize this technology to drive user engagement and growth to their platform.
+
+
+## Predictive Accuracy by Product
+
+**What is the level of accuracy (the percentage of testing cases correctly classified) in each type of product listed in the label variable?** 
+
+We will use the predictions from our best model, which is the random forest model with a sample size of 5000.
+The table below shows the accuracy of prediction for each product type.
+
+```{r, echo=FALSE}
+# Create a data frame to store the actual and predicted labels
+results_df <- data.frame(Actual = test$label, Predicted = y_pred_rf_2a)
+
+product.count <- 1000
+
+# Create a table to store the accuracy for each type of product
+accuracy_table <- data.frame(Product = unique(results_df$Actual), Accuracy = numeric(length(unique(results_df$Actual))))
+
+# Calculate accuracy for each type of product
+for (product in unique(results_df$Actual)) {
+  correct_predictions <- sum(results_df$Actual == product & results_df$Predicted == product)
+  accuracy <- (correct_predictions / product.count) * 100
+  accuracy_table[accuracy_table$Product == product, "Accuracy"] <- accuracy
+}
+data.table(accuracy_table)
+bag <- accuracy_table[9,2]
+shirt <- accuracy_table[7,2]
+
+```
+From the random forest model with a sample size of 5000,  
+**bag** has the highest prediciton accuracy with  **`r bag`%**   
+**shirt** has the lowest accuracy **`r shirt`%**.  
+
+  
+## Confusion Matrix
+
+
+  
+  
+**Confusion Matrix**  
+  
+This confusion matrix is the result of our highest performing classification model's performance on the actual data set. Each row represents the actual labels, and each column represents the predicted labels. The diagonal elements of the confusion matrix represent the correct predictions, while the off-diagonal elements represent the mis-classifications.  
+
+Confusion matrix evaluates the performance of a model's performance. A well-performing classification model means that this image processing or recognition is highly accurate for implementations. For example, if used for content recommendation, the model's accurate performance will ensure that users see the relevant products and content, leading to higher user engagement and satisfaction. Understanding the confusion matrix can also help the social media company develop use cases such as improving targeted advertising. By knowing which products are being accurately classified, the company can target user segments more effectively with relevant ads based on their preferences and interactions with specific product types.
+  
+
+```{r, echo=FALSE}
+conf_matrix <- confusionMatrix(y_pred_rf_2a, as.factor(test$label))
+print(conf_matrix)
+accuracy <- conf_matrix$overall['Accuracy']*100
+```
+
+The overall accuracy of the model is **`r accuracy`%**.   
+**Bag** has the highest sensitivity.  
+**Trouser** has the highest specificity & precision.
+  
+   
+**True positive (TP), true negative (TN), false positive (FP), and false negative (FN) predictions**  
+  
+To break down and evaluate the model's performance even further, these metrics are derived from a confusion matrix and provide insights into how well the model is making correct and incorrect predictions for each class.  
+   
+True Positive (TP):   
+The number of instances from the positive class that were correctly predicted as positive by the model. In other words, TP represents the number of instances where the model correctly identified the image.  
+  
+True Negative (TN):   
+The number of instances from the negative class that were correctly predicted as negative by the model.   
+  
+False Positive (FP):   
+The number of instances from the negative class that were incorrectly predicted as positive by the model.  
+  
+False Negative (FN):    
+The number of instances from the positive class that were incorrectly predicted as negative by the model.    
+  
+    
+From the table below, we can see that **trousers** has the highest true positive counts, meaning that it has the highest instances the model correctly classified the image.  
+  
+We can also see that **shirt** is the product that has the highest false negative counts, meaning that a lot of the shirt images are mis-classified. This may be attributed to the fact that the T-shirt/Top category can appear to be highly similar to the image of a shirt. This indicates that there may need to be further effort invested to accurately distinguish the two categories.
+  
+```{r, echo=FALSE}
+# Create a confusion matrix
+conf_matrix_ <- table(test$label, as.factor(y_pred_rf_2a))
+
+# Initialize vectors to store TP, TN, FP, FN for each class
+tp_vector <- numeric(length(unique(test$label)))
+tn_vector <- numeric(length(unique(test$label)))
+fp_vector <- numeric(length(unique(test$label)))
+fn_vector <- numeric(length(unique(test$label)))
+
+# Calculate TP, TN, FP, FN for each class
+for (i in 1:length(unique(test$label))) {
+  tp_vector[i] <- conf_matrix_[i, i]
+  tn_vector[i] <- sum(diag(conf_matrix_)) - tp_vector[i]
+  fp_vector[i] <- sum(conf_matrix_[, i]) - tp_vector[i]
+  fn_vector[i] <- sum(conf_matrix_[i, ]) - tp_vector[i]
+}
+
+# Create a data frame to store the results
+conf_matrix_results <- data.frame(Class = unique(test$label), TP = tp_vector, TN = tn_vector, FP = fp_vector, FN = fn_vector)
+data.table(conf_matrix_results)
+```
+
+## Correlation Plot
+  
+**Correlation Plot**
+
+This table below tabulates the average pixels values for the 49 pixels of each product type's image.
+
+```{r, echo=FALSE}
+
+# Split the data by label
+split_dat <- split(dat, dat$label)
+
+# Initialize an empty data frame to store the mean values
+mean_values_df <- data.frame()
+
+# For each class, calculate mean
+for (i in 1:length(split_dat)) {
+  mean_values <- round(colMeans(split_dat[[i]][, 2:ncol(split_dat[[i]])]), 2)
+  
+  # Create a data frame of the mean values
+  mean_values_df_temp <- data.frame(Class = names(split_dat)[i], t(mean_values))
+  
+  # Bind the data frames together
+  mean_values_df <- rbind(mean_values_df, mean_values_df_temp)
+}
+
+# Print the data frame of mean values
+print(mean_values_df)
+
+```
+  
+A **correlation plot** for each product type's image pixel provides insights into the relationships between different pixels and how they are correlated for each class of products. This plot represents the correlation coefficients between pairs of variables. Each pixel (pixel1 to pixel9) represents a variable, and the correlation coefficients between these variables are computed for each product class.  
+   
+The values in the correlation plot indicate the strength and weakness of correlation between pixel values. Higher positive values indicate strong positive correlation, while higher negative values indicate strong negative correlation. Values approximate to zero indicate weak or no correlation. We can also identify patterns in the correlation plot that represent similar pixel behaviors across different product types. For example, if certain pixels have consistently high positive correlations for a specific group of products, it indicates that those pixels might play a significant role in distinguishing those product types.  
+  
+From the visualization plots created below, we can see distinct recurring patterns for each fashion product types. For products with high precision, **trouser**'s average pixel mean correlation plot (bottom right plot) is shown to have an even and consistent pattern across.   
+  
+By analyzing a correlation plot, the social media company can discover patterns and trends emerging in different product types. These insights can be leveraged to identify emerging trends in fashion or other products, allowing the company to tailor its content and recommendations to appeal to users' interests and encouraging user engagement.
+  
+  
+  
+```{r, echo=FALSE}
+# Split the data by label
+split_dat <- split(dat, dat$label)
+
+# Compute correlations within each class
+par(mfrow = c(2, 5))  # Adjust these values according to your number of classes
+for (i in 1:length(split_dat)) {
+  correlations <- cor(split_dat[[i]][, 2:ncol(split_dat[[i]])],)
+  corrplot(correlations, method = "shade", type = "lower", tl.cex = 0.4, tl.col = "black", main = names(split_dat)[i], mar=c(0,0,2,0))
+}
+
+
+
+```
+
+

@@ -1,0 +1,212 @@
+---
+title: "Marketing Survey and Dynamic Application:  Training Material"
+author: "Yien Tseng"
+date: "`r Sys.Date()`"
+output:
+  prettydoc::html_pretty:
+  theme: cayman
+highlight: github
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r seed}
+set.seed(41)
+```
+
+```{r libraries}
+library(data.table)
+library(ggplot2)
+library(DT)
+```
+
+```{r constants}
+
+```
+
+```{r functions}
+round.numerics <- function(x, digits){
+  if(is.numeric(x)){
+    x <- round(x = x, digits = digits)
+  }
+  return(x)
+}
+```
+
+```{r load_data}
+data <- fread(input = '/Users/yientseng/Desktop/Classes/Data Science Consulting/Assignment 3/Data/mobile phone survey data.csv')
+```
+
+```{r explore_data, eval = FALSE}
+
+```
+
+
+```{r clean_data}
+
+```
+
+
+## Introduction
+
+Working with marketing survey data is not particularly difficult, but it's challenging in ways of examination and interpretation. This report aims to provide some instructions that will help you tackle the data, including skills needed, things to keep in mind, and challenges you may face.
+
+### Skill 1: Understand Conceptual Questions and Define Them Using Functions
+In one of the questions in interest, we want to provide client information of "How much does a respondent’s engagement depend on the product, and how much depends on the respondent?" One way we might investigate this further is to see whether the respondent’s outcomes in other products has an impact on this one. 
+
+For example, "How much impact does respondent’s overall trends in awareness have for that person’s awareness with Buzzdial phones? " Let's break down the question into its components and identify the variables involved. We will have to group by 'id' at some point, assign one of the engagement factors "Awareness", and one of the unique values of the column "Product". These components come from different dimensions of the data, consider the desired outcome and how they can be quantified or calculated carefully.
+
+Moreover, be mindful of missing data and handle it appropriately in calculations. It's almost impossible for survey data not having missing values. After all the filtering, aggregating and merging, when it comes to correlation or dependence, the desired outcome might require fitting data into a model.
+
+All in all, challenges include interpreting the question, managing complex calculations, and ensuring accurate implementation. Details matter.
+
+
+```{r}
+AggregatedEngagement_Awareness <- function(data, product, variable) {
+  aggregated_data <- data[data$Product != product & complete.cases(data$Awareness), ]
+  # Calculate the aggregated engagement based on the variable type and 'id'
+  aggregated_engagement <- aggregate(aggregated_data[['Awareness']], by = list(aggregated_data$id), FUN = function(x) {
+    if (variable %in% c("Awareness", "Consideration", "Consumption", "Advocacy")) {
+      total_count <- sum(!is.na(x))
+      positive_count <- sum(x == 1, na.rm = TRUE)
+      score <- (positive_count / total_count) * 100
+    } else if (variable %in% c("Satisfaction")) {
+      max_score <- max(x, na.rm = TRUE)
+      average_score <- mean(x, na.rm = TRUE)
+      score <- (average_score / max_score) * 100
+    } else {
+      stop("Invalid variable name!")
+    }
+    return(score)
+  })
+  names(aggregated_engagement) <- c("id", "AggregatedEngagement")
+  # Merge the aggregated engagement with product_data based on 'id'
+  product_data <- data[data$Product == "Buzzdial"&complete.cases(data$Awareness), ]
+  product_data <- merge(product_data, aggregated_engagement, by = "id", all.x = TRUE)
+  model <- glm(Awareness ~ Age + Gender + Income + Region + Persona + AggregatedEngagement, data = product_data, family = binomial) 
+  coefs <- summary(model)$coefficients[,1]
+  modelstatistics <- coef(summary(model))
+  odds_ratios <- exp(modelstatistics[, "Estimate"])
+  lower_ci <- exp(modelstatistics[, "Estimate"] - 1.96 * modelstatistics[, "Std. Error"])
+  upper_ci <- exp(modelstatistics[, "Estimate"] + 1.96 * modelstatistics[, "Std. Error"])
+  p_values <- modelstatistics[, "Pr(>|z|)"]
+
+  summary_table <- data.frame(Coef = round.numerics(coefs,3),
+                              Odds_Ratio = round.numerics(odds_ratios,3),
+                              Lower_CI = round.numerics(lower_ci,3),
+                              Upper_CI = round.numerics(upper_ci,3),
+                              p_value = round.numerics(p_values,3))
+  summary_table <- datatable(summary_table)
+  return(summary_table)
+}
+
+AggregatedEngagement_Awareness(data, "Buzzdial", "Awareness")
+
+ 
+```
+
+### Skill 2: Be Organized and Consisitent on Your Work
+Optimizing data retrieval, storage, and processing in the Shiny application can be a complex task. It is important to maintain consistency in naming conventions and avoid redundant constants. 
+
+Developing generalized and practical functions, such as those for printing percentage tables or fitting models, can save time and streamline the workflow. Additionally, creating customized functions tailored to the data enables easy extraction of information and addressing specific inquiries, provided they are reproducible and applicable to various scenarios. 
+
+As the reporting engine needs to handle dynamic data and allow multiple users to interact with the application, scalability become crucial. Ensuring that the application remains responsive and scales efficiently with increasing data and user load can be challenging. As the application evolves, it's best to maintain clean and modular code. Ensuring that the application is easily maintainable and extensible to track changes and manage updates over time can be a challenge as well.
+
+```{r}
+# Manageing constants
+id.name <- "User ID"
+age.name <- "Age"
+gender.name <- "Gender"
+income.name <- "Income"
+region.name <- "Region"
+persona.name <- "Persona"
+
+product.name <- "Product"
+awareness.name <- "Awareness"
+consideration.name <- "Consideration"
+consumption.name <- "Consumption"
+satisfaction.name <- "Satisfaction"
+advocacy.name <- "Advocacy"
+
+bp.pattern <- "BP_"
+
+age.group.name <- "Age Group"
+income.group.name <- "Income Group"
+
+
+# Customized Functions
+EngagementRate <- function(data, variable) {
+  if (variable %in% c("Awareness", "Consideration", "Consumption", "Advocacy")) {
+    total_count <- sum(!is.na(data[[variable]]))
+    positive_count <- sum(data[[variable]] == 1, na.rm = TRUE)
+    score <- (positive_count / total_count) * 100
+  } else if (variable %in% c("Satisfaction")) {
+    max_score <- max(data[[variable]], na.rm = TRUE)
+    average_score <- mean(data[[variable]], na.rm = TRUE)
+    score <- (average_score / max_score) * 100
+  } else {
+    stop("Invalid variable name!")
+  }
+  
+  return(score)
+}
+
+calculateLargestGaps <- function(data, variable1, variable2) {
+  # Calculate the consumption rate and awareness rate for each product
+  rate1 <- sapply(unique(data$Product), function(prod) {
+    EngagementRate(data[data$Product == prod, ], variable1)
+  })
+  rate2 <- sapply(unique(data$Product), function(prod) {
+    EngagementRate(data[data$Product == prod, ], variable2)
+  })
+  differences <- rate1 - rate2
+  top_5 <- head(sort(differences, decreasing = TRUE), 5)
+  top_5_df <- data.frame(Product = names(top_5), Difference = top_5)
+  top_5_df$Product <- factor(top_5_df$Product, levels = top_5_df$Product[order(top_5_df$Difference, decreasing = TRUE)])
+  ggplot(top_5_df, aes(x = Product, y = Difference)) +
+    geom_col() +
+    geom_text(aes(label = round(Difference, 1)), vjust = 1.5, color = "white") +
+    labs(title = "Top 5 Largest Differences in Two Rates", x = "Product", y = "Difference") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+}
+
+calculateLargestGaps(data, "Consumption", "Awareness")
+
+```
+
+```{r}
+# Generalized and handy functions
+logistic.regression.summary <- function(glm.mod, digits = 3, alpha = 0.05){
+  library(data.table)
+  glm.coefs <- as.data.table(summary(glm.mod)$coefficients, keep.rownames = TRUE)
+  setnames(x = glm.coefs, old = "rn", new = "Variable")
+  z <- qnorm(p = 1-alpha/2, mean = 0, sd = 1)
+  glm.coefs[, Odds.Ratio := exp(Estimate)]
+  glm.coefs[, OR.Lower.95 := exp(Estimate - z * `Std. Error`)]
+  glm.coefs[, OR.Upper.95 := exp(Estimate + z * `Std. Error`)]
+  
+  return(glm.coefs[])
+}
+
+linear.regression.summary <- function(lm.mod, digits = 3, alpha = 0.05){
+  library(data.table)
+  lm.coefs <- as.data.table(summary(lm.mod)$coefficients, keep.rownames = TRUE)
+  setnames(x = lm.coefs, old = "rn", new = "Variable")
+
+  z <- qnorm(p = 1-alpha/2, mean = 0, sd = 1)
+  lm.coefs[, Coef.Lower.95 := Estimate - z * `Std. Error`]
+  lm.coefs[, Coef.Upper.95 := Estimate + z * `Std. Error`]
+  return(lm.coefs)
+}
+
+percentage.table <- function(x, digits = 1){
+  tab <- table(x)
+  percentage.tab <- 100*tab/(sum(tab))
+  rounded.tab <- round(x = percentage.tab, digits = digits)
+  return(rounded.tab)
+}
+```
+

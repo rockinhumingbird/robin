@@ -1,0 +1,161 @@
+---
+title: "Image Processing:  Additional Analyses"
+author: "Asta & Shiyue"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,message = FALSE, warning = FALSE)
+```
+
+```{r seed}
+set.seed(41)
+```
+
+```{r libraries}
+library(data.table)
+library(DT)
+library(randomForest)
+library(caret)
+```
+
+```{r constants}
+num_components <- c(700, 600, 500, 400, 300, 200, 100)
+model.formula <- label~.
+```
+
+```{r functions}
+get.dat.name <- function(size, idx) {
+  return (paste0("dat_", size, "_", idx))
+}
+
+probability.to.response <- function(probs){
+  probs.mean = apply(probs, c(1,2),mean)
+  col.idx <- apply(probs.mean,1,which.max)
+  return(colnames(probs.mean)[col.idx])
+}
+
+round.numerics <- function(x, digits){
+  if(is.numeric(x)){
+    x <- round(x = x, digits = digits)
+  }
+  return(x)
+}
+```
+
+```{r load_data}
+train <- fread(input = "MNIST-fashion training set-49.csv")
+test <- fread(input = "MNIST-fashion testing set-49.csv")
+```
+
+```{r explore_data, eval = FALSE}
+
+```
+
+
+```{r clean_data}
+train[,label:=as.factor(label)]
+test[,label:=as.factor(label)]
+n.train = nrow(train)
+```
+
+# {.tabset}
+
+## Introduction
+In this report, we will delve into the analysis of image classification. Leveraging on random forest model, we aim to classify different categories of fashion products based on their images. The performance of our model will be assessed using a variety of criteria, such as its general accuracy, sensitivity, specificity, and more. We will also investigate how the dimensionality of the data affects the predictive power of our model. This will require the use of a method called Principal Component Analysis (PCA). 
+
+
+## Predictive Accuracy by Product
+
+From our project in Part 1, we concluded that random forest model gave us the best overall score for determining the images.
+
+```{r code_model4_development, eval = TRUE}
+best.model <- function(dat.train, dat.test) {
+  rf_model <- randomForest(model.formula, data = dat.train, ntree = 100, mtry = sqrt(ncol(dat.train) - 1), importance = TRUE)
+  pred <- predict(rf_model, newdata = dat.test)
+  return(pred)
+}
+y.pred <- best.model(train,test)
+```
+
+```{r}
+result.table <- data.table(y.pred = y.pred, y.true = test[,label])[,.(accuracy = mean(y.true == y.pred)*100), by=y.true][order(-accuracy)]
+min.percent <- result.table[,min(accuracy)]
+result.table
+```
+The results of the Random Forest model showcase impressive accuracy levels across various types of apparel categories. Notably, the model excels in classifying "Bag," "Trouser," and "Ankle boot" items, with accuracies exceeding 94%. These categories may have distinctive visual patterns that make them easier to distinguish. Even though this is the best model, it doesn't neccesarily work across all product categories. 4 products have an accuracy of less than 90% with the minimum being `r min.percent`%. The model encounters more difficulty in distinguishing between "Shirt" items, achieving the mentioned lowest accuracy. Which means for any given time, roughly 1/3rd of the time it will classify it as a different product. 
+
+There might be a few reasons why the model gave us this accuracy. If a product category has only a few training samples available, the model may not have enough data to learn distinct patterns or features that characterize that category accurately. Consequently, the model's performance might be compromised, resulting in lower accuracy for those underrepresented categories. If there is a significant difference in the number of samples between different product categories, the dataset becomes imbalanced. Models tend to prioritize accuracy on the majority class (the one with more samples), which could lead to lower accuracy for minority classes (categories with fewer samples).
+
+We can address this issue in a few ways. We can do data augmentation where we generate additional training samples for underrepresented categories through techniques like image rotation, flipping, or shifting. This can help balance the dataset and improve accuracy for all categories. We can also do data resampling where we use techniques like oversampling (replicating samples from minority classes) or undersampling (removing samples from majority classes) to create a more balanced dataset. A similar thing to this would be adding class weights where we assign higher weights to the minority classes during model training. Lastly, to correct for this low accuracy we can also use another model that only deals with the bottom 4 or we can train random forest on the bottom 4 with additional records. 
+
+
+## Independent Investigation
+Following the discussion of our primary predictive model, this section will delve further into the exploration of the model's performance. Here, we will conduct an independent investigation to deepen our understanding of the model's behavior and outcomes across multiple dimensions.
+
+#### 1. Model Performances vs. Data Dimensionality 
+High dimensional data is a typical occurrence in the field of image recognition, but managing it effectively is essential. Reducing the dimensionality of the data might drastically shorten model training and prediction duration, improving the effectiveness of our models. With the help of this analysis, we will be able to better understand how to strike a compromise between using more data — which could result in unneeded complexity and noise — and getting the best model performance. 
+
+We will explore the performance of our Random Forest model using various numbers of principal components. Principal Component Analysis (PCA) is a technique we used to reduce the dimensionality of our data, and it does this by projecting each data point onto only the most relevant directions. This allows us to capture the most variance with the fewest number of principal components.
+
+
+```{r}
+
+accuracies <- numeric(length(num_components))
+train_test_with_pca <- function(train_data, test_data, n_components) {
+  preProc <- preProcess(train_data[, -1], method = "pca", pcaComp = n_components)
+  train_transformed <- predict(preProc, train_data[, -1])
+  test_transformed <- predict(preProc, test_data[, -1])
+  rf_model <- randomForest(label ~ ., data = cbind(label = train_data$label, train_transformed), 
+                           ntree = 100, mtry = sqrt(ncol(train_transformed) + 1), importance = TRUE)
+  y.pred <- predict(rf_model, newdata = cbind(label = test_data$label, test_transformed))
+  accuracy <- sum(y.pred == test_data$label) / nrow(test_data)
+  return(accuracy)
+}
+
+for(i in seq_along(num_components)) {
+  accuracies[i] <- train_test_with_pca(train, test, num_components[i])
+}
+
+data.frame(Number_of_Components = num_components, Accuracy = accuracies)
+
+```
+
+According to the result table, the accuracy of the results shows a slight peak at 600 principle components, with a slight decline as we reduce or increase the number of components. This shows that an optimal balance at a dimensionality of about 600.
+
+This is valuable for us to know about. First, it serves as a strong reminder that feeding a model more data does not always result in an increase in performance. There is frequently an ideal number of characteristics that will reduce overfitting and offer sufficient details for reliable forecasts. It implies that we may be able to employ fewer components (i.e., a more "compressed" or "lower resolution" representation of the images) without significantly compromising accuracy, leading to a substantial time and resource savings for computation.
+
+Additionally, this finding can help us determine the dimensionality of future models. Instead of trying to change the complexity of our data, knowing that our model works best at about 600 dimensions allows us to concentrate on improving other parts of our model.
+
+
+
+
+#### 2. Confusion Matrix
+The confusion matrix offers thorough explanations of how the model functions for each class. It demonstrates which classes the model can accurately predict and which ones it has trouble doing so. Understanding the per-class performance might assist point out areas where the model can be improved, therefore it is not sufficient to only know the overall accuracy.
+
+```{r}
+conf.mat <- confusionMatrix(y.pred, test$label)
+conf.mat
+```
+
+
+```{r}
+# Visualization
+heatmap(as.matrix(conf.mat$table), scale = "column", margins = c(5, 5))
+```
+
+From the confusion matrix, we can observe that the model shows high sensitivity for some apparel categories like "Ankle boot," "Bag," "Dress," "Sandal," and "Trouser," with values ranging from 0.922 to 0.975. This indicates that our model is well-tuned to accurately identify these categories when presented with them. In contrast, the model seems to struggle with categories such as "Shirt," "Pullover," and "Coat." This is reflected in the lower sensitivity values for these categories, implying the model fails to correctly identify these categories more often than others.
+
+We also notice that "Trouser" has the highest positive predictive value (PPV), meaning when the model predicts an image is a trouser, it is correct about 98.96% of the time. "Bag" and "Sandal" also exhibit high PPVs, adding confidence in these predictions.
+
+These findings emphasize the significance of evaluating a model's performance for each category not just its general accuracy. By doing this, we may identify our strengths and weaknesses and take specific steps to improve them. This can entail adding more data for underrepresented categories, adjusting the model's parameters, or experimenting with various machine learning techniques.
+
+
+
+## Conclusion
+The results of our study on image processing are encouraging. Particularly for "Bag," "Trouser," and "Ankle boot," the random forest model demonstrated high accuracy in differentiating between several categories of fashion products. However, we discovered some discrepancies in accuracy for several product categories, with 'Shirt' having the lowest accuracy. We suggested a number of solutions to address this, including data augmentation, data resampling, class weight adjustments, and the use of a special model for underperforming categories. The performance of the model for underrepresented categories can be enhanced by using these techniques to balance our dataset.
+
+Furthermore, our independent analysis showed how the performance of the model is impacted by data dimensionality. The accuracy of the model was not greatly impacted when the amount of features was reduced using PCA, indicating that the model can continue to function even with fewer input features.
+
+In conclusion, our model offers a reliable and effective tool for classifying images of fashion items. Future work can concentrate on optimizing the amount of PCA components for greater effectiveness and further boosting the model's performance for low-accuracy categories. This model's incorporation into a fashion retail system may ultimately result in enhanced product classification, more individualized consumer experiences, and simplified operational processes.
+
