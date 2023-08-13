@@ -1,0 +1,202 @@
+---
+title: "Marketing Survey and Dynamic Application:  Training Material"
+author: "Asta Adhira Anggono"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r seed}
+set.seed(41)
+```
+
+```{r libraries}
+library(data.table)
+library(DT)
+```
+
+```{r constants}
+
+```
+
+```{r source_functions}
+source("constants.R")
+source("functions.R")
+```
+
+```{r functions}
+states.of.engagement.select <- function(id, title){
+  selectInput(inputId = id, label = title, choices = STATES.OF.ENGAGEMENT, selected = STATES.OF.ENGAGEMENT[1])
+}
+
+top.n.select <- function(id, title){
+  selectInput(inputId = id, label = title, choices = c("", 5,10,20))
+}
+
+digits.select <- function(id, title){
+  selectInput(inputId = id, label = title, choices = c(0,1,2,3), selected = 2)
+}
+
+product.select <- function(id, title){
+  selectInput(inputId = id, label = title, choices = unique.values[[PRODUCT.COL.NAME]], selected = unique.values[[PRODUCT.COL.NAME]], multiple = T)
+}
+
+custom.select <- function(id, title, vars, multiple.select = T){
+  selectInput(inputId = id,
+              label = title,
+              choices = vars,
+              selected = ifelse(multiple.select == T, vars, vars[1]),
+              multiple = multiple.select)
+}
+
+percentage.checkbox <- function(id,title){
+  checkboxInput(inputId = id, label= title, value = T)
+}
+
+respondent.variables.group.select <- function(id){
+  rv.select.inputs = list()
+  for (v in RESPONDENT.VARIABLES) {
+    rv.select.inputs[[v]] <- selectInput(inputId = paste0(id,"_",v),
+                                         label = v,
+                                         choices = unique.values[[v]],
+                                         selected = unique.values[[v]],
+                                         multiple = T)
+    
+  }
+  return(rv.select.inputs)
+}
+
+barplot.output <- function(y.vals, x.vals, title, show.pcts = T, digits =2){
+  
+  barplot(height = y.vals,
+          names.arg = x.vals,
+          space=0.01,
+          las = 1,
+          main = title,
+          ylab = "Percentage", 
+          #xlab = input$respondent_variable, 
+          ylim = c(0, 1.2*max(y.vals, na.rm = TRUE)), 
+          col = "dodgerblue")
+  digits.str=paste0("%.", digits, "f%%")
+  if(show.pcts==T){
+    space_val = 0
+    text(x = -0.5 + 1:length(y.vals) * (1+space_val), y = y.vals, labels = sprintf(digits.str, y.vals), pos = 3)
+  }
+  
+}
+
+get.q1.id = function(id){return (paste0("q1_",id))}
+
+get.q2.id = function(id){return (paste0("q2_",id))}
+
+get.q3.id = function(id){return (paste0("q3_",id))}
+
+get.q4.id = function(id){return (paste0("q4_",id))}
+
+get.q5.id = function(id){return (paste0("q5_",id))}
+```
+
+```{r load_data}
+survey <- fread("../Data/mobile phone survey data.csv", verbose = F)
+
+```
+
+```{r explore_data, eval = FALSE}
+
+```
+
+```{r define_variables}
+respondents <- unique(survey[,.SD,.SDcols=c(ID.COL.NAME,AGE.COL.NAME,GENDER.COL.NAME,REGION.COL.NAME,PERSONA.COL.NAME,INCOME.COL.NAME)])
+respondents[,eval(AGE.GRP.COL.NAME):=get.resp.group(.SD,AGE.COL.NAME, AGE.GROUPS), by=ID.COL.NAME]
+respondents[,eval(INCOME.GRP.COL.NAME):=get.resp.group(.SD,INCOME.COL.NAME,INCOME.GROUPS), by=ID.COL.NAME]
+
+survey.col.names <- colnames(survey)
+bp.col.names <- survey.col.names[startsWith(survey.col.names,"BP_")]
+neg.bp.col.names <- tail(bp.col.names,4)
+pos.bp.col.names <- head(bp.col.names,8)
+survey <- respondents[,.SD,.SDcols = c(ID.COL.NAME,AGE.GRP.COL.NAME,INCOME.GRP.COL.NAME)][survey,on=ID.COL.NAME]
+unique.values <- list()
+ for (i in RESPONDENT.VARIABLES) {
+   unique.values[[i]]=respondents[,unique(get(i))]
+ }
+unique.values[[PRODUCT.COL.NAME]]=survey[,unique(get(PRODUCT.COL.NAME))]
+```
+
+
+
+## Introduction
+
+There are a few important things to pay attention when doing this project. Some are very simple yet crucial, and some are more complex and requires more getting used to especially when dealing with the Shiny App.
+
+1. The first simple important thing to do is creating subdata sets or smaller data to work with. Firstly, operations on smaller data tend to be faster compared to operations on larger data set. With less information, you are only working with specific fields that are related to each other and creating smaller subsets that focus on these subsets of interest allows for more targeted analysis and can lead to more meaningful insights. More importantly, it helps with debugging and testing. It allows us to iterate more quickly, identify and fix issues faster, and ensure correctness of your code. 
+
+Here is the initial data that we are working with 
+```{r, echo = TRUE}
+head(survey)
+```
+
+If we are only interested in analysing the demographic of the respondents it is better to create a smaller data just for the unique respondents and creating important attributes that are relevant for analysis:
+```{r, echo = TRUE}
+respondents <- unique(survey[,.SD,.SDcols=c(ID.COL.NAME,AGE.COL.NAME,GENDER.COL.NAME,REGION.COL.NAME,PERSONA.COL.NAME,INCOME.COL.NAME)])
+respondents[,eval(AGE.GRP.COL.NAME):=get.resp.group(.SD,AGE.COL.NAME, AGE.GROUPS), by=ID.COL.NAME]
+respondents[,eval(INCOME.GRP.COL.NAME):=get.resp.group(.SD,INCOME.COL.NAME,INCOME.GROUPS), by=ID.COL.NAME]
+respondents
+```
+
+2. Second important thing is when we are dealing with the Shiny Application. It is important to test the interface and create the overall layout before adding specific components, graphs, tables, inputs, and outputs in a Shiny application because of a few reasons. First is the user experience, it is the user's first interaction with your application. Testing the interface early allows a smooth experience. It also helps with our workflow design. By considering how different components and features fit together, you can create a logical and coherent user flow. Lastly, by focusing on the overall layout first, you can prioritize the allocation of space, organize the components effectively, and plan for future scalability. This helps ensure that the application can accommodate additional features, tables, graphs, or inputs in a coherent and efficient manner. 
+
+For this specific project, the initial template had been given to us. But there are important small tweaks such as adjusting the placement and height of the chart by adjusting the ```orientation : rows``` and specifying the ```data-height``` attribute
+
+![Layout of when you specify row data height to 500](example1.png)
+
+![Layout of when you you completely get rid of that](example2.png)
+
+
+
+3. Third important thing is creating UI widgets and putting them into functions. First benefit is reusability. You can simply call the function whenever you need to include that particular widget, reducing redundancy and making your code more concise. By defining UI widgets in functions, you can also ensure consistency in their appearance and behavior throughout your application. If you need to make changes or updates to the widget, you can do so in a centralized location, and those changes will be reflected wherever the function is used.
+
+Here are a few examples of UI widgets put in as a function:
+
+```{r, echo = TRUE}
+percentage.checkbox <- function(id,title){
+  checkboxInput(inputId = id, label= title, value = T)
+}
+
+top.n.select <- function(id, title){
+  selectInput(inputId = id, label = title, choices = c("", 5,10,20))
+}
+
+digits.select <- function(id, title){
+  selectInput(inputId = id, label = title, choices = c(0,1,2,3), selected = 2)
+}
+
+product.select <- function(id, title){
+  selectInput(inputId = id, label = title, choices = unique.values[[PRODUCT.COL.NAME]], selected = unique.values[[PRODUCT.COL.NAME]], multiple = T)
+}
+```
+
+4. Last thing is the method of organizing of naming input widgets by making it more systematic. A systematic naming method makes it easier to understand and interpret the purpose or context of each input widget. When reviewing or modifying the code, you can quickly identify which input widget corresponds to which question or piece of data. Moreover, A consistent naming convention makes it easier to maintain and update the code. When adding new input widgets or making changes, you can follow the established naming pattern, ensuring uniformity across the application. This consistency improves code comprehension and reduces the likelihood of errors. Lastly, with a systematic naming method, it becomes straightforward to perform data manipulation tasks based on the input widgets. For example, you can iterate through a series of input widgets using a loop, extracting the values or attributes associated with each widget based on the systematic naming pattern.   
+
+Here is an example of systematically naming input by question and using it in question 1 as an example:
+
+```{r, echo = TRUE, eval=FALSE}
+get.q1.id = function(id){return (paste0("q1_",id))}
+get.q2.id = function(id){return (paste0("q2_",id))}
+get.q3.id = function(id){return (paste0("q3_",id))}
+get.q4.id = function(id){return (paste0("q4_",id))}
+get.q5.id = function(id){return (paste0("q5_",id))}
+
+#input for question 1
+inputPanel(
+  custom.select(get.q1.id("input"),"Choose Inputs:",RESPONDENT.VARIABLES,F),
+  percentage.checkbox(get.q1.id("show_percentages"), "Show Percentages:")
+)
+
+#output for question 1
+renderPlot({
+  results <- percentage.table(respondents[,get(input$q1_input)])
+  barplot.output(results,names(results),input$q1_input, input$q1_show_percentages)
+})
+```

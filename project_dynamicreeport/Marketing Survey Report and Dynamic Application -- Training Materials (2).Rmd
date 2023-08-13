@@ -1,0 +1,208 @@
+---
+title: "Marketing Survey and Dynamic Application: Training Material"
+author: "Joy Tay"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r working directory, include=FALSE}
+# Set working directory to the source file's location
+  # Click Session > Set Working Directory > To Source File Location
+  # Code example: setwd("path/to/project/folder")
+```
+
+```{r clear memory, include=FALSE}
+# Clear memory
+rm(list = ls())
+```
+
+```{r libraries, include=FALSE}
+# Read in libraries
+library(data.table)
+library(DT)
+library(dplyr)
+```
+
+```{r source, include=FALSE}
+
+```
+
+```{r load_data, include=FALSE}
+# Load Data
+dat <- fread("mobile phone survey data.csv", verbose = F)
+```
+
+
+```{r clean and modify data, include=FALSE}
+# Add columns for the age and income groups
+dat[, Age_Group := case_when(
+  Age >= 18 & Age < 35 ~ "[ 18, 35)",
+  Age >= 35 & Age < 50 ~ "[ 35, 50)",
+  Age >= 50 & Age < 65 ~ "[ 50, 65)",
+  Age >= 65 ~ ">65"
+)]
+
+dat[, Income_Group := case_when(
+  Income < 50000 ~ "[  0, 50000)",
+  Income >= 50000 & Income < 75000 ~ "[ 50000, 75000)",
+  Income >= 75000 & Income < 100000 ~ "[ 75000, 100000)",
+  Income >= 100000 & Income < 150000 ~ "[100000, 150000)",
+  Income >= 150000 ~ ">150000"
+)]
+```
+
+## Introduction
+
+This training report provides a concise overview of the valuable skills and challenges encountered while working with the client's data. The report highlights the 3 key challenges that were particularly significant. These include:
+
+1. Addressing Missing Scores in Calculations
+2. Generating Dynamic Output with Multiple User Inputs
+3. Handling Multiple Types of Variables 
+
+Examples and clear instructions are provided to offer insights into the intricacies of working with complex data structures and help you navigate the data successfully.
+
+# Challenge 1: Addressing Missing Scores in Calculations
+
+One of the challenges I encountered was accounting for missing scores while carrying out calculations. It was essential to adopt a nuanced approach that recognized the underlying reason for missing data. In this survey, missing values resulted from customers indicating their unawareness of a product. Thus, I had to appropriately remove these missing values to ensure the accuracy and validity of the metrics calculated. 
+
+### Example 1: Overall Average Brand Perception Calculation
+
+To compute the overall average brand perception, I had to exclude all missing values. This was achieved by using the "na.rm = TRUE" argument within the mean function, ensuring that the resulting averages are based solely on available data points. The following code shows how the overall average brand perception was calculated for the top 5 brands.
+
+```{r 1.1}
+get.overall.perception <- function(data, n_brands){
+  brand.avg.scores <- data[, lapply(.SD, function(x) mean(x, na.rm = TRUE)), # Indicated here
+                           .SDcols = startsWith(names(data), bp.pattern), by = Product]
+  brand.avg.scores[, (negative.cols) := lapply(.SD, function(x) 10 - x), .SDcols = negative.cols]
+  brand.avg.scores[, Overall_Average_Perception := rowMeans(.SD), .SDcols = startsWith(names(brand.avg.scores), bp.pattern)]
+  top.brands <- brand.avg.scores[order(-Overall_Average_Perception)][1:n_brands]
+  return(top.brands[, .SD, .SDcols = c(product.name, average.perception.name)])
+}
+
+top.brands <- get.overall.perception(dat, 5)
+datatable(top.brands[, lapply(.SD, round.numerics, 3)])
+```
+
+### Example 2: Aggregated Engagement Rate Calculation
+
+The computation of the aggregated engagement rate involves addressing various scenarios based on its definition. Specifically, we had to consider the following conditions:
+
+- A user's aggregated engagement is determined by averaging the outcome variable across all products that are not being modeled.
+- Any missing scores should be excluded from the calculation.
+- If a user has no measured scores in the other products, the aggregated engagement is defined as zero.
+
+To handle all these conditions, an ifelse statement was used in the function to calculate the rate. The ifelse condition checks if there are any other products with non-missing scores for the outcome variable. If such products exist, the mean of the outcome variable for those products (excluding the current product) is calculated. However, if all other products have missing scores for the outcome variable, a value of 0 is assigned to the aggregated engagement.
+
+```{r 1.2, eval = F}
+find.agg.engagement <- function(data, product, dep.var, indep.var){
+  agg.engagement <- data[!is.na(get(dep.var)), Aggregated_Engagement := ifelse(any(Product != product & !is.na(get(dep.var))), mean(get(dep.var)[Product != product], na.rm = TRUE), 0) , by = id]
+  dep.var.data <- agg.engagement[Product == product & !is.na(get(dep.var)), ]
+  model.data <- dep.var.data[, .SD, .SDcols = c(dep.var, indep.var)]
+  return(model.data)
+}
+```
+
+# Challenge 2: Generating Dynamic Output with Multiple User Inputs
+
+Generating dynamic outputs based on multiple user inputs in a concise and readable fashion was another challenging aspect. To address this challenge, I employed various strategies:
+
+- I utilized functions to streamline and simplify the process, allowing for efficient handling of user inputs and generating personalized outputs.
+- I incorporated various options for output customization, such as magnifying labels, presenting percentages/rates, choosing rounding digits and selecting the number of products to be shown.
+
+### Example 1: Using Functions
+
+In the following renderPlot output, I utilized the aforementioned get.overall.perception() function to retrieve the top brands based on user input. This function was employed after filtering the data according to the specified inputs. Subsequently, this data was used to generate a barplot to provide a convenient visualization for the client. By leveraging functions and organizing them in a separate R file, which is sourced within the code, several advantages are achieved. Firstly, this approach ensures clean and concise code, enhancing readability and maintainability. Secondly, separating the function enables easy updates and modifications for the client. Lastly, the function's versatility allows for generalization, making it applicable for other reports or analyses.
+
+```{r 2.1, eval = F}
+renderPlot({
+  subdat <- dat[get(age.group.name) %in% input$bp_age_group & get(gender.name) %in% input$bp_gender & get(income.group.name) %in% input$bp_income_group & get(region.name) %in% input$bp_region & get(persona.name) %in% input$bp_persona]
+  
+  top.brands.perception <- get.overall.perception(subdat, input$number_of_brands)
+  
+  barplot(height = top.brands.perception[, Overall_Average_Perception], space = 0.01, las = 1, main = "Overall Average Brand Perception", ylab = "Score", xlab = product.name, ylim = c(0, max(top.brands.perception[, Overall_Average_Perception]) * 1.2), col = "skyblue", cex.names = input$bp_product_info_names_magnification, names.arg = top.brands.perception[, Product])
+
+  if(input$bp_show_score == TRUE){
+    text(x = -0.5 + 1:length(top.brands.perception[, Overall_Average_Perception]), y = top.brands.perception[, Overall_Average_Perception] + 0.05 * max(top.brands.perception[, Overall_Average_Perception]), labels = sprintf("%.2f", top.brands.perception[, Overall_Average_Perception]), pos = 3, cex = input$bp_product_info_names_magnification, col = "black")
+  }
+})
+```
+
+### Example 2: Output Customization
+
+In the input panel, I added slider inputs for label magnification, the number of products, and the number of digits displayed. Additionally, I included a checkbox input to enable the client to specify whether they prefer percentages to be indicated. This design allows for seamless customization and allows the client to obtain their desired visual display of data. 
+
+```{r 2.2, eval = F}
+sliderInput(inputId = "gap_product_info_names_magnification", label = magnify.label, min = 0.4, max = 1.4, value = 1, step = 0.1),
+
+sliderInput(inputId = "gap_number_of_products", label = choose.n.products.label, min = 0, max = 20, value = 5, step = 1),
+
+sliderInput(inputId = "gap_digits", label = rounding.digits.label, min = 0, max = 5, value = 1, step = 1),
+
+checkboxInput(inputId = "gap_show_percentages", label = show.pct.label, value = TRUE)  
+```
+
+# Challenge 3: Handling Multiple Types of Variables
+
+Another significant challenge I encountered was handling multiple types of variables when calculating the gaps in outcomes and determining the appropriate regression models to use. 
+
+### Example 1: Gaps in Outcomes
+
+Calculating the gaps in outcome required a differentiated approach for each variable type. For binary outcomes such as awareness, consideration, consumption, and advocacy, the score was derived by calculating the percentage of respondents who answered positively among those who were surveyed. On the other hand, for numeric outcomes like Satisfaction, the score was determined as the average value expressed as a percentage of the maximum score. To achieve this, I employed conditional statements using if-else constructs, which allowed me to differentiate between the satisfaction outcome (numeric class) and all other binary outcomes (integer class). I repeated this process twice to check and assign values to each indicated outcome variable. 
+
+```{r 3.1, eval = F}
+if(class(outcome1) == "numeric"){
+    outcome1.rate <- data[, .(Average1 = mean(Satisfaction, na.rm = TRUE)), by = Product]
+}
+else{
+    outcome1.rate <- data[, .(Average1 = sum(get(outcome1), na.rm = TRUE) / length(na.omit(get(outcome1)))), by = Product]
+}
+if(class(outcome2) == "numeric"){
+    outcome2.rate <- data[, .(Average2 = mean(Satisfaction, na.rm = T)), by = Product]
+}
+else{
+    outcome2.rate <- data[, .(Average2 = sum(get(outcome2), na.rm = TRUE) / length(na.omit(get(outcome2)))), by = Product]
+}
+```
+
+### Example 2: Determining Regression Type 
+
+Next, to handle the different types of user-selected outcome variables, I implemented conditional statements to identify whether the variable was "Satisfaction" or not. Based on this classification, I assigned the appropriate model type (linear regression for satisfaction, logistic regression for other outcomes) and extracted the relevant statistics from each model. Note that satisfaction was the only numeric dependent variable in the survey. 
+
+```{r 3.2, eval = F}
+if(input$aggem_state == satisfaction.name){
+    model.type <- linear.model
+    relevant.stats <- relevant.stats.linear
+}
+if(input$aggem_state != satisfaction.name){
+    model.type <- logstic.model
+    relevant.stats <- relevant.stats.logistic
+}
+```
+
+# Additional Training Instructions
+
+Here are some tips for using the static report and dynamic reporting engine. 
+
+### 1. Setting the Working Directory
+
+-   Before running the report, it is essential to set the working directory to the source file's location and ensure that all the data files are stored in that same file.
+    -   This can be done by following these steps: Click Session \> Set Working Directory \> To Source File Location
+
+### 2. Unified Infrastructure for Consistent Reporting
+
+- To ensure consistency and streamline the reporting process, I created two additional files, namely constants.R and functions.R, which house constant variables and essential functions that are used in both the static and dynamic reports. 
+- These files are sourced at the beginning of the code, enabling easy access and utilization of shared resources throughout the reporting workflow.
+- This unified approach promotes code reusability, simplifies maintenance, and fosters consistency across different report types.
+
+### 3. Labelling inputIds
+
+- It is very important to ensure that each inputId has a unique label. Duplicate labels may lead to ambiguity, coding errors and make it difficult for users to obtain their desired input.
+- You should use clear and descriptive labels that accurately describe the purpose or functionality of each input for each specified question.
+- Lastly, it is advisable to follow a consistent naming convention to enhance readability and maintainability. Use meaningful and standardized naming patterns that align with the purpose or type of input.
+
+# Contact for Additional Support
+
+All these tips provided should help you utilize and understand the data. Feel free to contact me at [jwt2131\@columbia.edu](mailto:jwt2131@columbia.edu){.email} for any further clarification.
